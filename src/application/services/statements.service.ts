@@ -1,27 +1,26 @@
-// src/application/services/statements.service.ts
 import {
   Injectable,
   ConflictException,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-} from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { Statement } from "../../infrastructure/persistence/typeorm/entities/statement.entity";
-import { StatementItem } from "../../infrastructure/persistence/typeorm/entities/statement-item.entity";
-import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
-import { CreditCard } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
+import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
+import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
+import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 
 function monthDiff(a: string, b: string) {
   // a, b = YYYY-MM-01
-  const [ay, am] = a.split("-").map(Number);
-  const [by, bm] = b.split("-").map(Number);
+  const [ay, am] = a.split('-').map(Number);
+  const [by, bm] = b.split('-').map(Number);
   return (by - ay) * 12 + (bm - am);
 }
 
 function yyyymmdd(y: number, m: number) {
-  const mm = String(m).padStart(2, "0");
+  const mm = String(m).padStart(2, '0');
   return `${y}-${mm}-01`;
 }
 
@@ -34,7 +33,8 @@ export class StatementsService {
     private readonly items: Repository<StatementItem>,
     @InjectRepository(Purchase)
     private readonly purchases: Repository<Purchase>,
-    @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>
+    @InjectRepository(CreditCard)
+    private readonly cards: Repository<CreditCard>,
   ) {}
 
   async generate(params: {
@@ -51,7 +51,7 @@ export class StatementsService {
     });
     if (!card)
       throw new ForbiddenException(
-        "Credit card not found or not owned by user"
+        'Credit card not found or not owned by user',
       );
 
     const exists = await this.statements.findOne({
@@ -61,7 +61,7 @@ export class StatementsService {
         month: params.month,
       },
     });
-    if (exists) throw new ConflictException("Statement already exists");
+    if (exists) throw new ConflictException('Statement already exists');
 
     // cria a statement vazia
     const st = this.statements.create({
@@ -71,8 +71,8 @@ export class StatementsService {
       closingDate: params.closingDate ?? null,
       dueDate: params.dueDate ?? null,
       locked: params.locked ?? false,
-      adjustmentAmount: "0.00",
-      totalAmount: "0.00",
+      adjustmentAmount: '0.00',
+      totalAmount: '0.00',
     });
     await this.statements.save(st);
 
@@ -86,7 +86,7 @@ export class StatementsService {
         creditCardId: params.creditCardId,
         createdByUserId: params.userId,
       },
-      order: { purchaseDate: "ASC" },
+      order: { purchaseDate: 'ASC' },
     });
 
     const newItems: StatementItem[] = [];
@@ -100,7 +100,7 @@ export class StatementsService {
               purchaseId: p.id,
               label: `Compra à vista`,
               amount: p.totalAmount,
-            })
+            }),
           );
         }
       } else {
@@ -114,7 +114,7 @@ export class StatementsService {
 
         const base = `${p.purchaseDate.slice(0, 4)}-${p.purchaseDate.slice(
           5,
-          7
+          7,
         )}-01`;
         const diff = monthDiff(base, firstDay);
         if (diff < 0 || diff >= parts) continue; // fora da janela da fatura
@@ -126,7 +126,7 @@ export class StatementsService {
             purchaseId: p.id,
             label: `Parcela ${diff + 1}/${parts}`,
             amount: amount.toFixed(2),
-          })
+          }),
         );
       }
     }
@@ -150,7 +150,7 @@ export class StatementsService {
     if (!card) throw new ForbiddenException();
     return this.statements.find({
       where: { creditCardId },
-      order: { year: "DESC", month: "DESC" },
+      order: { year: 'DESC', month: 'DESC' },
     });
   }
 
@@ -190,5 +190,33 @@ export class StatementsService {
     st.paidAmount = amount;
     st.paidAt = paidAt ? new Date(`${paidAt}T00:00:00Z`) : new Date();
     return this.statements.save(st);
+  }
+
+  async list(
+    userId: string,
+    opts: { creditCardId: string; year?: number; month?: number },
+  ) {
+    const card = await this.cards.findOne({
+      where: { id: opts.creditCardId, createdByUserId: userId },
+    });
+    if (!card) throw new ForbiddenException();
+
+    if (opts.year && opts.month) {
+      const one = await this.statements.findOne({
+        where: {
+          creditCardId: opts.creditCardId,
+          year: opts.year,
+          month: opts.month,
+        },
+        relations: { items: false },
+      });
+      if (!one) throw new NotFoundException('Statement not found');
+      return one;
+    }
+
+    return this.statements.find({
+      where: { creditCardId: opts.creditCardId },
+      order: { year: 'DESC', month: 'DESC' },
+    });
   }
 }

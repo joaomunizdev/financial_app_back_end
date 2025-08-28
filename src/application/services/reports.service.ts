@@ -1,81 +1,112 @@
-/** ReportsService
- * Clean-architecture application service.
- * Exposes use-cases and enforces business rules.
- */
-import { Injectable } from "@nestjs/common";
-import { Repository, SelectQueryBuilder } from "typeorm";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
-import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
+import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
+import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
+import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
+import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 
 @Injectable()
 export class ReportsService {
   constructor(
     @InjectRepository(Purchase)
     private readonly purchases: Repository<Purchase>,
-    @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>
+    @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
+    @InjectRepository(Statement)
+    private readonly statements: Repository<Statement>,
+    @InjectRepository(StatementItem)
+    private readonly items: Repository<StatementItem>,
+    @InjectRepository(CreditCard)
+    private readonly cards: Repository<CreditCard>,
   ) {}
 
-  private baseQB(userId: string): SelectQueryBuilder<Purchase> {
-    return this.purchases
-      .createQueryBuilder("p")
-      .where("p.created_by_user_id = :userId", { userId });
+  async totalsByTenant(userId: string, opts?: { statementId?: string }) {
+    if (opts?.statementId) {
+      const st = await this.statements.findOne({
+        where: { id: opts.statementId },
+        relations: { creditCard: true },
+      });
+      if (!st) throw new NotFoundException('Statement not found');
+      if (st.creditCard.createdByUserId !== userId)
+        throw new ForbiddenException();
+
+      const rows = await this.items
+        .createQueryBuilder('si')
+        .innerJoin('si.statement', 's')
+        .innerJoin('si.purchase', 'p')
+        .innerJoin('p.tenant', 't')
+        .innerJoin('p.creditCard', 'cc')
+        .where('s.id = :sid', { sid: opts.statementId })
+        .andWhere('cc.createdByUserId = :uid', { uid: userId })
+        .select('t.id', 'tenantId')
+        .addSelect('t.name', 'tenantName')
+        .addSelect('SUM(CAST(si.amount AS numeric))', 'totalAmount')
+        .groupBy('t.id')
+        .addGroupBy('t.name')
+        .orderBy('t.name', 'ASC')
+        .getRawMany();
+
+      return rows.map((r) => ({
+        tenantId: r.tenantid ?? r.tenantId,
+        tenantName: r.tenantname ?? r.tenantName,
+        totalAmount: r.totalamount ?? r.totalAmount,
+      }));
+    }
+
+    const rows = await this.purchases
+      .createQueryBuilder('p')
+      .innerJoin('p.tenant', 't')
+      .where('p.createdByUserId = :uid', { uid: userId })
+      .select('t.id', 'tenantId')
+      .addSelect('t.name', 'tenantName')
+      .addSelect(
+        `
+        SUM(
+          CASE 
+            WHEN p.isInstallment = true AND p.installmentsTotal > 0
+            THEN (CAST(p.totalAmount AS numeric))
+            ELSE CAST(p.totalAmount AS numeric)
+          END
+        )
+      `,
+        'totalAmount',
+      )
+      .groupBy('t.id')
+      .addGroupBy('t.name')
+      .orderBy('t.name', 'ASC')
+      .getRawMany();
+
+    return rows.map((r) => ({
+      tenantId: r.tenantid ?? r.tenantId,
+      tenantName: r.tenantname ?? r.tenantName,
+      totalAmount: r.totalamount ?? r.totalAmount,
+    }));
   }
 
-  async summaryByTenant(filters: {
-    userId: string;
-    creditCardId?: string;
-    dateStart?: string;
-    dateEnd?: string;
-    isInstallment?: boolean;
-  }) {
-    let qb = this.baseQB(filters.userId)
-      .select("p.tenant_id", "tenantId")
-      .addSelect("t.name", "tenantName")
-      .addSelect("SUM(p.total_amount)::text", "total_amount")
-      .innerJoin(Tenant, "t", "t.id = p.tenant_id")
-      .groupBy("p.tenant_id, t.name")
-      .orderBy("total_amount", "DESC");
-
-    if (filters.creditCardId)
-      qb = qb.andWhere("p.credit_card_id = :cc", { cc: filters.creditCardId });
-    if (filters.isInstallment !== undefined)
-      qb = qb.andWhere("p.is_installment = :inst", {
-        inst: filters.isInstallment,
+  async totalGlobal(userId: string, opts?: { statementId?: string }) {
+    if (opts?.statementId) {
+      const st = await this.statements.findOne({
+        where: { id: opts.statementId },
+        relations: { creditCard: true },
       });
-    if (filters.dateStart && filters.dateEnd)
-      qb = qb.andWhere("p.purchase_date BETWEEN :ds AND :de", {
-        ds: filters.dateStart,
-        de: filters.dateEnd,
-      });
+      if (!st) throw new NotFoundException('Statement not found');
+      if (st.creditCard.createdByUserId !== userId)
+        throw new ForbiddenException();
 
-    return qb.getRawMany();
-  }
+      return { totalAmount: st.totalAmount };
+    }
 
-  async globalSummary(filters: {
-    userId: string;
-    creditCardId?: string;
-    dateStart?: string;
-    dateEnd?: string;
-    isInstallment?: boolean;
-  }) {
-    let qb = this.baseQB(filters.userId).select(
-      "COALESCE(SUM(p.total_amount),0)::text",
-      "total_amount"
-    );
+    const sum = await this.purchases
+      .createQueryBuilder('p')
+      .where('p.createdByUserId = :uid', { uid: userId })
+      .select('COALESCE(SUM(CAST(p.totalAmount AS numeric)),0)', 'sum')
+      .getRawOne<{ sum: string }>();
 
-    if (filters.creditCardId)
-      qb = qb.andWhere("p.credit_card_id = :cc", { cc: filters.creditCardId });
-    if (filters.isInstallment !== undefined)
-      qb = qb.andWhere("p.is_installment = :inst", {
-        inst: filters.isInstallment,
-      });
-    if (filters.dateStart && filters.dateEnd)
-      qb = qb.andWhere("p.purchase_date BETWEEN :ds AND :de", {
-        ds: filters.dateStart,
-        de: filters.dateEnd,
-      });
-
-    return qb.getRawOne();
+    return { totalAmount: sum || '0.00' };
   }
 }
