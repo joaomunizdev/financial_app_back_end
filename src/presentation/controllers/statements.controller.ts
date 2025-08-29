@@ -1,4 +1,3 @@
-// src/presentation/controllers/statements.controller.ts
 import {
   Body,
   Controller,

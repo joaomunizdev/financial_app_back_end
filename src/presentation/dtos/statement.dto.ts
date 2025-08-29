@@ -1,4 +1,3 @@
-// src/presentation/dtos/statement.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,

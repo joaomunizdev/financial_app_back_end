@@ -1,4 +1,3 @@
-// src/infrastructure/persistence/typeorm/entities/statement-item.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,

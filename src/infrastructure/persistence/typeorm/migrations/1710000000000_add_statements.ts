@@ -1,4 +1,3 @@
-// src/infrastructure/persistence/typeorm/migrations/1700000000001_AddStatements.ts
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddStatements1700000000001 implements MigrationInterface {
