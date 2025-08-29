@@ -22,6 +22,8 @@ import { StatementsController } from './presentation/controllers/statements.cont
 import { Subscription } from './infrastructure/persistence/typeorm/entities/subscription.entity';
 import { SubscriptionsController } from './presentation/controllers/subscriptions.controller';
 import { SubscriptionsService } from './application/services/subscriptions.service';
+import { ReportsPdfService } from './application/services/reports-pdf.service';
+import { ReportsPdfController } from './presentation/controllers/reports-pdf.controller';
 
 @Module({
   imports: [
@@ -62,6 +64,7 @@ import { SubscriptionsService } from './application/services/subscriptions.servi
     ReportsController,
     StatementsController,
     SubscriptionsController,
+    ReportsPdfController,
   ],
   providers: [
     AuthService,
@@ -71,6 +74,7 @@ import { SubscriptionsService } from './application/services/subscriptions.servi
     ReportsService,
     StatementsService,
     SubscriptionsService,
+    ReportsPdfService,
   ],
 })
 export class AppModule {}

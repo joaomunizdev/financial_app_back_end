@@ -98,7 +98,7 @@ export class StatementsService {
             this.items.create({
               statementId: st.id,
               purchaseId: p.id,
-              label: 'Cash purchase',
+              label: 'Compra à vista',
               amount: p.totalAmount,
             }),
           );
@@ -120,7 +120,7 @@ export class StatementsService {
           this.items.create({
             statementId: st.id,
             purchaseId: p.id,
-            label: `Installment ${diff + 1}/${parts}`,
+            label: `Parcela ${diff + 1}/${parts}`,
             amount: amount.toFixed(2),
           }),
         );
