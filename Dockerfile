@@ -1,18 +1,22 @@
-FROM node:24-bookworm-slim AS deps
-WORKDIR /app
+FROM node:24-bookworm-slim
+
+WORKDIR /usr/src/app
+ENV NODE_ENV=development
+
+# instala utilitários necessários para watch/hot-reload
+RUN apt-get update && apt-get install -y \
+    procps \
+    git \
+    bash \
+    nano \
+    && rm -rf /var/lib/apt/lists/*
+
+# Só instala deps (produção + dev) uma vez na imagem
 COPY package*.json ./
 RUN npm ci
 
-FROM node:24-bookworm-slim AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-FROM node:24-bookworm-slim
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+# portas: app e debug (opcional)
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+
+# Em dev vamos montar o código via volume e rodar em modo watch
+CMD ["npm", "run", "start:dev"]
