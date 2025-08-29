@@ -16,7 +16,7 @@ import { StatementItem } from '../../infrastructure/persistence/typeorm/entities
 import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Subscription } from '../../infrastructure/persistence/typeorm/entities/subscription.entity';
-
+import { DataSource } from 'typeorm';
 function monthDiff(a: string, b: string) {
   const [ay, am] = a.split('-').map(Number);
   const [by, bm] = b.split('-').map(Number);
@@ -41,6 +41,7 @@ export class StatementsService {
     private readonly cards: Repository<CreditCard>,
     @InjectRepository(Subscription)
     private readonly subs: Repository<Subscription>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async generate(params: {
@@ -204,9 +205,57 @@ export class StatementsService {
 
   async pay(id: string, userId: string, amount: string, paidAt?: string) {
     const st = await this.findById(id, userId);
-    st.paidAmount = amount;
-    st.paidAt = paidAt ? new Date(`${paidAt}T00:00:00Z`) : new Date();
-    return this.statements.save(st);
+
+    if (!st.locked) {
+      throw new BadRequestException('Statement must be locked before payment.');
+    }
+
+    // Se já estava paga, apenas atualiza o valor/data sem tocar nas parcelas
+    const alreadyPaid = !!st.paidAt;
+
+    await this.dataSource.transaction(async (manager) => {
+      const stmtRepo = manager.getRepository(Statement);
+      const itemRepo = manager.getRepository(StatementItem);
+      const purchaseRepo = manager.getRepository(Purchase);
+
+      // Recarrega dentro da transação
+      const stmt = await stmtRepo.findOne({ where: { id } });
+      if (!stmt)
+        throw new ConflictException('Statement not found during payment.');
+
+      if (!alreadyPaid) {
+        const items = await itemRepo.find({
+          where: { statementId: id },
+          relations: { purchase: true },
+        });
+
+        const toBump = new Map<string, Purchase>();
+
+        for (const it of items) {
+          const p = it.purchase;
+          if (!p) continue;
+
+          if (p.isInstallment) {
+            const total = p.installmentsTotal ?? 0;
+            const paid = p.installmentsPaid ?? 0;
+            if (total > 0 && paid < total) {
+              p.installmentsPaid = Math.min(paid + 1, total);
+              toBump.set(p.id, p);
+            }
+          }
+        }
+
+        if (toBump.size > 0) {
+          await purchaseRepo.save([...toBump.values()]);
+        }
+      }
+
+      stmt.paidAmount = amount;
+      stmt.paidAt = paidAt ? new Date(`${paidAt}T00:00:00Z`) : new Date();
+      await stmtRepo.save(stmt);
+    });
+
+    return this.findById(id, userId);
   }
 
   async list(

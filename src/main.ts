@@ -28,7 +28,7 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('Cards SaaS API')
+    .setTitle('Financial App API')
     .setDescription('REST API for credit card expense tracking')
     .setVersion('1.0.0')
     .addBearerAuth(
