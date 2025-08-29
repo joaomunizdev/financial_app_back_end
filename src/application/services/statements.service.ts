@@ -1,3 +1,7 @@
+/** StatementsService
+ * Clean-architecture application service.
+ * Exposes use-cases and enforces business rules.
+ */
 import {
   Injectable,
   ConflictException,
@@ -11,9 +15,9 @@ import { Statement } from '../../infrastructure/persistence/typeorm/entities/sta
 import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
 import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
+import { Subscription } from '../../infrastructure/persistence/typeorm/entities/subscription.entity';
 
 function monthDiff(a: string, b: string) {
-  // a, b = YYYY-MM-01
   const [ay, am] = a.split('-').map(Number);
   const [by, bm] = b.split('-').map(Number);
   return (by - ay) * 12 + (bm - am);
@@ -35,6 +39,8 @@ export class StatementsService {
     private readonly purchases: Repository<Purchase>,
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
+    @InjectRepository(Subscription)
+    private readonly subs: Repository<Subscription>,
   ) {}
 
   async generate(params: {
@@ -63,7 +69,6 @@ export class StatementsService {
     });
     if (exists) throw new ConflictException('Statement already exists');
 
-    // cria a statement vazia
     const st = this.statements.create({
       creditCardId: params.creditCardId,
       year: params.year,
@@ -76,12 +81,8 @@ export class StatementsService {
     });
     await this.statements.save(st);
 
-    // monta items
-    const firstDay = yyyymmdd(params.year, params.month);
-    const targetYm = firstDay.slice(0, 7); // YYYY-MM
-
-    // Consideramos todas as purchases do usuário para o cartão, mas filtraremos pela lógica
-    const all = await this.purchases.find({
+    const targetYm = `${params.year}-${String(params.month).padStart(2, '0')}`;
+    const purchases = await this.purchases.find({
       where: {
         creditCardId: params.creditCardId,
         createdByUserId: params.userId,
@@ -90,15 +91,14 @@ export class StatementsService {
     });
 
     const newItems: StatementItem[] = [];
-    for (const p of all) {
+    for (const p of purchases) {
       if (!p.isInstallment) {
-        // entra se o mês/ano coincidir
         if (p.purchaseDate.slice(0, 7) === targetYm) {
           newItems.push(
             this.items.create({
               statementId: st.id,
               purchaseId: p.id,
-              label: `Compra à vista`,
+              label: 'Cash purchase',
               amount: p.totalAmount,
             }),
           );
@@ -108,36 +108,47 @@ export class StatementsService {
         const parts = p.installmentsTotal ?? 0;
         if (parts < 1) continue;
 
-        const per = Math.round((total / parts) * 100) / 100; // 2 casas
-        // ajuste da última parcela
+        const per = Math.round((total / parts) * 100) / 100;
         const last = Math.round((total - per * (parts - 1)) * 100) / 100;
 
-        const base = `${p.purchaseDate.slice(0, 4)}-${p.purchaseDate.slice(
-          5,
-          7,
-        )}-01`;
-        const diff = monthDiff(base, firstDay);
-        if (diff < 0 || diff >= parts) continue; // fora da janela da fatura
+        const baseYm = `${p.purchaseDate.slice(0, 7)}`;
+        const diff = monthDiff(`${baseYm}-01`, `${targetYm}-01`);
+        if (diff < 0 || diff >= parts) continue;
 
         const amount = diff === parts - 1 ? last : per;
         newItems.push(
           this.items.create({
             statementId: st.id,
             purchaseId: p.id,
-            label: `Parcela ${diff + 1}/${parts}`,
+            label: `Installment ${diff + 1}/${parts}`,
             amount: amount.toFixed(2),
           }),
         );
       }
     }
+    if (newItems.length) await this.items.save(newItems);
 
-    if (newItems.length) {
-      await this.items.save(newItems);
-    }
+    const purchasesSum = newItems.reduce(
+      (acc, it) => acc + Number(it.amount),
+      0,
+    );
 
-    // total = soma(items) + adjustment
-    const sum = newItems.reduce((acc, it) => acc + Number(it.amount), 0);
-    st.totalAmount = (sum + Number(st.adjustmentAmount)).toFixed(2);
+    const rawSubsSum = await this.subs
+      .createQueryBuilder('s')
+      .select('COALESCE(SUM(CAST(s.amount as numeric)), 0)', 'sum')
+      .where('s.creditcardid = :card', { card: params.creditCardId })
+      .andWhere('s.createdbyuserid = :uid', { uid: params.userId })
+      .andWhere('s.active = true')
+      .getRawOne<{ sum: string }>();
+    const subsSumRaw = rawSubsSum?.sum ?? '0';
+
+    const subsSum = Number(subsSumRaw || 0);
+
+    st.totalAmount = (
+      purchasesSum +
+      subsSum +
+      Number(st.adjustmentAmount)
+    ).toFixed(2);
     await this.statements.save(st);
 
     return this.findById(st.id, params.userId);
@@ -167,21 +178,27 @@ export class StatementsService {
 
   async update(id: string, userId: string, patch: Partial<Statement>) {
     const st = await this.findById(id, userId);
+
     if (
       st.locked &&
       (patch.closingDate !== undefined ||
         patch.dueDate !== undefined ||
         patch.adjustmentAmount !== undefined)
     ) {
-      // ainda permitimos ajustar datas/ajuste; se quiser bloquear tudo, troque a regra
     }
-    Object.assign(st, patch);
-    // recomputa total se adjustmentAmount mudou
+
     if (patch.adjustmentAmount !== undefined) {
-      const items = await this.items.find({ where: { statementId: id } });
-      const sum = items.reduce((acc, it) => acc + Number(it.amount), 0);
-      st.totalAmount = (sum + Number(st.adjustmentAmount)).toFixed(2);
+      const oldAdj = Number(st.adjustmentAmount || 0);
+      const newAdj = Number(patch.adjustmentAmount || 0);
+      const delta = newAdj - oldAdj;
+      st.totalAmount = (Number(st.totalAmount || 0) + delta).toFixed(2);
+      st.adjustmentAmount = patch.adjustmentAmount as any;
+      const { adjustmentAmount, ...rest } = patch as any;
+      Object.assign(st, rest);
+      return this.statements.save(st);
     }
+
+    Object.assign(st, patch);
     return this.statements.save(st);
   }
 

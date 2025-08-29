@@ -1,3 +1,7 @@
+/** ReportsService.
+ * Clean-architecture application service.
+ * Exposes use-cases and enforces business rules.
+ */
 import {
   Injectable,
   ForbiddenException,
@@ -10,6 +14,7 @@ import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant
 import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
 import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
+import { Subscription } from 'src/infrastructure/persistence/typeorm/entities/subscription.entity';
 
 @Injectable()
 export class ReportsService {
@@ -23,9 +28,50 @@ export class ReportsService {
     private readonly items: Repository<StatementItem>,
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
+    @InjectRepository(Subscription)
+    private readonly subs: Repository<Subscription>,
   ) {}
 
   async totalsByTenant(userId: string, opts?: { statementId?: string }) {
+    const mergeByTenant = (
+      ...rows: Array<
+        Array<{
+          tenantId: string | null;
+          tenantName: string | null;
+          totalAmount: string;
+        }>
+      >
+    ) => {
+      const acc = new Map<
+        string,
+        {
+          tenantId: string | null;
+          tenantName: string | null;
+          totalAmount: number;
+        }
+      >();
+      for (const arr of rows) {
+        for (const r of arr) {
+          const key = r.tenantId ?? '__null__';
+          const prev = acc.get(key) ?? {
+            tenantId: r.tenantId ?? null,
+            tenantName: r.tenantName ?? '—',
+            totalAmount: 0,
+          };
+          prev.totalAmount += Number(r.totalAmount || 0);
+          if (r.tenantName) prev.tenantName = r.tenantName;
+          acc.set(key, prev);
+        }
+      }
+      return [...acc.values()]
+        .sort((a, b) => (a.tenantName ?? '').localeCompare(b.tenantName ?? ''))
+        .map((x) => ({
+          tenantId: x.tenantId,
+          tenantName: x.tenantName,
+          totalAmount: x.totalAmount.toFixed(2),
+        }));
+    };
+
     if (opts?.statementId) {
       const st = await this.statements.findOne({
         where: { id: opts.statementId },
@@ -35,7 +81,7 @@ export class ReportsService {
       if (st.creditCard.createdByUserId !== userId)
         throw new ForbiddenException();
 
-      const rows = await this.items
+      const purchaseRows = await this.items
         .createQueryBuilder('si')
         .innerJoin('si.statement', 's')
         .innerJoin('si.purchase', 'p')
@@ -49,43 +95,71 @@ export class ReportsService {
         .groupBy('t.id')
         .addGroupBy('t.name')
         .orderBy('t.name', 'ASC')
-        .getRawMany();
+        .getRawMany<{
+          tenantId: string;
+          tenantName: string;
+          totalAmount: string;
+        }>();
 
-      return rows.map((r) => ({
-        tenantId: r.tenantid ?? r.tenantId,
-        tenantName: r.tenantname ?? r.tenantName,
-        totalAmount: r.totalamount ?? r.totalAmount,
-      }));
+      const subsRows = await this.subs
+        .createQueryBuilder('sub')
+        .leftJoin('sub.tenant', 't')
+        .where('sub.creditCardId = :card', { card: st.creditCardId })
+        .andWhere('sub.createdByUserId = :uid', { uid: userId })
+        .andWhere('sub.active = true')
+        .select('t.id', 'tenantId')
+        .addSelect('t.name', 'tenantName')
+        .addSelect(
+          'COALESCE(SUM(CAST(sub.amount AS numeric)), 0)',
+          'totalAmount',
+        )
+        .groupBy('t.id')
+        .addGroupBy('t.name')
+        .getRawMany<{
+          tenantId: string | null;
+          tenantName: string | null;
+          totalAmount: string;
+        }>();
+
+      return mergeByTenant(purchaseRows, subsRows);
     }
 
-    const rows = await this.purchases
+    const purchaseRows = await this.purchases
       .createQueryBuilder('p')
       .innerJoin('p.tenant', 't')
       .where('p.createdByUserId = :uid', { uid: userId })
       .select('t.id', 'tenantId')
       .addSelect('t.name', 'tenantName')
       .addSelect(
-        `
-        SUM(
-          CASE 
-            WHEN p.isInstallment = true AND p.installmentsTotal > 0
-            THEN (CAST(p.totalAmount AS numeric))
-            ELSE CAST(p.totalAmount AS numeric)
-          END
-        )
-      `,
+        'COALESCE(SUM(CAST(p.totalAmount AS numeric)), 0)',
         'totalAmount',
       )
       .groupBy('t.id')
       .addGroupBy('t.name')
       .orderBy('t.name', 'ASC')
-      .getRawMany();
+      .getRawMany<{
+        tenantId: string;
+        tenantName: string;
+        totalAmount: string;
+      }>();
 
-    return rows.map((r) => ({
-      tenantId: r.tenantid ?? r.tenantId,
-      tenantName: r.tenantname ?? r.tenantName,
-      totalAmount: r.totalamount ?? r.totalAmount,
-    }));
+    const subsRows = await this.subs
+      .createQueryBuilder('sub')
+      .leftJoin('sub.tenant', 't')
+      .where('sub.createdByUserId = :uid', { uid: userId })
+      .andWhere('sub.active = true')
+      .select('t.id', 'tenantId')
+      .addSelect('t.name', 'tenantName')
+      .addSelect('COALESCE(SUM(CAST(sub.amount AS numeric)), 0)', 'totalAmount')
+      .groupBy('t.id')
+      .addGroupBy('t.name')
+      .getRawMany<{
+        tenantId: string | null;
+        tenantName: string | null;
+        totalAmount: string;
+      }>();
+
+    return mergeByTenant(purchaseRows, subsRows);
   }
 
   async totalGlobal(userId: string, opts?: { statementId?: string }) {
@@ -97,16 +171,23 @@ export class ReportsService {
       if (!st) throw new NotFoundException('Statement not found');
       if (st.creditCard.createdByUserId !== userId)
         throw new ForbiddenException();
-
       return { totalAmount: st.totalAmount };
     }
 
-    const sum = await this.purchases
+    const p = await this.purchases
       .createQueryBuilder('p')
       .where('p.createdByUserId = :uid', { uid: userId })
       .select('COALESCE(SUM(CAST(p.totalAmount AS numeric)),0)', 'sum')
       .getRawOne<{ sum: string }>();
 
-    return { totalAmount: sum || '0.00' };
+    const s = await this.subs
+      .createQueryBuilder('sub')
+      .where('sub.createdByUserId = :uid', { uid: userId })
+      .andWhere('sub.active = true')
+      .select('COALESCE(SUM(CAST(sub.amount AS numeric)),0)', 'sum')
+      .getRawOne<{ sum: string }>();
+
+    const total = Number(p?.sum || 0) + Number(s?.sum || 0);
+    return { totalAmount: total.toFixed(2) };
   }
 }
