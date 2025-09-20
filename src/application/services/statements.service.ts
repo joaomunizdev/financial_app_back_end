@@ -68,7 +68,10 @@ export class StatementsService {
         month: params.month,
       },
     });
-    if (exists) throw new ConflictException('Statement already exists');
+
+    if (exists) {
+      await this.statements.delete({ id: exists.id });
+    }
 
     const st = this.statements.create({
       creditCardId: params.creditCardId,
