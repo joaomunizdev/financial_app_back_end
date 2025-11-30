@@ -24,17 +24,22 @@ import { SubscriptionsController } from './presentation/controllers/subscription
 import { SubscriptionsService } from './application/services/subscriptions.service';
 import { ReportsPdfService } from './application/services/reports-pdf.service';
 import { ReportsPdfController } from './presentation/controllers/reports-pdf.controller';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
     SecurityModule,
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST || 'postgres',
-      port: Number(process.env.DB_PORT || 5432),
-      username: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
-      database: process.env.DB_NAME || 'cardsdb',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      username: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
       entities: [
         User,
         Tenant,

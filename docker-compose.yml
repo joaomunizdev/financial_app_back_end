@@ -1,34 +1,21 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${DB_NAME:-cardsdb}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    ports:
-      - '${DB_PORT:-5432}:5432'
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   app:
     build: ./
     environment:
+      DB_HOST: host.docker.internal
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
       NODE_ENV: development
+      JWT_SECRET: DzTt89o2hXci9lFhmtN4LIpCZx6wr8eUiZ5ijJuX6dh
       CHOKIDAR_USEPOLLING: 'true'
       CHOKIDAR_INTERVAL: '300'
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
     command: npm run start:dev
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - '3000:3000'
-volumes:
-  pgdata:
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
