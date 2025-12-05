@@ -1,14 +1,10 @@
 services:
   app:
     build: ./
+    env_file:
+      - .env
     environment:
-      DB_HOST: host.docker.internal
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: postgres
       NODE_ENV: development
-      JWT_SECRET: DzTt89o2hXci9lFhmtN4LIpCZx6wr8eUiZ5ijJuX6dh
       CHOKIDAR_USEPOLLING: 'true'
       CHOKIDAR_INTERVAL: '300'
     volumes:
