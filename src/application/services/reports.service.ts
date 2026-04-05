@@ -15,6 +15,8 @@ import { Statement } from '../../infrastructure/persistence/typeorm/entities/sta
 import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Subscription } from 'src/infrastructure/persistence/typeorm/entities/subscription.entity';
+import { FixedExpense } from '../../infrastructure/persistence/typeorm/entities/fixed-expense.entity';
+import { IncomeSource } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 
 @Injectable()
 export class ReportsService {
@@ -30,136 +32,132 @@ export class ReportsService {
     private readonly cards: Repository<CreditCard>,
     @InjectRepository(Subscription)
     private readonly subs: Repository<Subscription>,
+    @InjectRepository(FixedExpense)
+    private readonly fixedExpenses: Repository<FixedExpense>,
+    @InjectRepository(IncomeSource)
+    private readonly incomeSources: Repository<IncomeSource>,
   ) {}
 
-  async totalsByTenant(userId: string, opts?: { statementId?: string }) {
-    const mergeByTenant = (
-      ...rows: Array<
-        Array<{
-          tenantId: string | null;
-          tenantName: string | null;
-          totalAmount: string;
-        }>
-      >
-    ) => {
-      const acc = new Map<
-        string,
-        {
-          tenantId: string | null;
-          tenantName: string | null;
-          totalAmount: number;
-        }
-      >();
-      for (const arr of rows) {
-        for (const r of arr) {
-          const key = r.tenantId ?? '__null__';
-          const prev = acc.get(key) ?? {
-            tenantId: r.tenantId ?? null,
-            tenantName: r.tenantName ?? '—',
-            totalAmount: 0,
-          };
-          prev.totalAmount += Number(r.totalAmount || 0);
-          if (r.tenantName) prev.tenantName = r.tenantName;
-          acc.set(key, prev);
-        }
-      }
-      return [...acc.values()]
-        .sort((a, b) => (a.tenantName ?? '').localeCompare(b.tenantName ?? ''))
-        .map((x) => ({
-          tenantId: x.tenantId,
-          tenantName: x.tenantName,
-          totalAmount: x.totalAmount.toFixed(2),
-        }));
-    };
-
-    if (opts?.statementId) {
-      const st = await this.statements.findOne({
-        where: { id: opts.statementId },
-        relations: { creditCard: true },
-      });
-      if (!st) throw new NotFoundException('Statement not found');
-      if (st.creditCard.createdByUserId !== userId)
-        throw new ForbiddenException();
-
-      const purchaseRows = await this.items
-        .createQueryBuilder('si')
-        .innerJoin('si.statement', 's')
-        .innerJoin('si.purchase', 'p')
-        .innerJoin('p.tenant', 't')
-        .innerJoin('p.creditCard', 'cc')
-        .where('s.id = :sid', { sid: opts.statementId })
-        .andWhere('cc.createdByUserId = :uid', { uid: userId })
-        .select('t.id', 'tenantId')
-        .addSelect('t.name', 'tenantName')
-        .addSelect('SUM(CAST(si.amount AS numeric))', 'totalAmount')
-        .groupBy('t.id')
-        .addGroupBy('t.name')
-        .orderBy('t.name', 'ASC')
-        .getRawMany<{
-          tenantId: string;
-          tenantName: string;
-          totalAmount: string;
-        }>();
-
-      const subsRows = await this.subs
-        .createQueryBuilder('sub')
-        .leftJoin('sub.tenant', 't')
-        .where('sub.creditCardId = :card', { card: st.creditCardId })
-        .andWhere('sub.createdByUserId = :uid', { uid: userId })
-        .andWhere('sub.active = true')
-        .select('t.id', 'tenantId')
-        .addSelect('t.name', 'tenantName')
-        .addSelect(
-          'COALESCE(SUM(CAST(sub.amount AS numeric)), 0)',
-          'totalAmount',
-        )
-        .groupBy('t.id')
-        .addGroupBy('t.name')
-        .getRawMany<{
-          tenantId: string | null;
-          tenantName: string | null;
-          totalAmount: string;
-        }>();
-
-      return mergeByTenant(purchaseRows, subsRows);
+  async totalsByTenant(userId: string, year?: number, month?: number) {
+    if (!year || !month) {
+      return [];
     }
 
-    const purchaseRows = await this.purchases
-      .createQueryBuilder('p')
+    const tenants = await this.tenants.find({
+      where: { createdByUserId: userId },
+      order: { name: 'ASC' },
+    });
+
+    const statements = await this.statements
+      .createQueryBuilder('s')
+      .innerJoin('s.creditCard', 'cc')
+      .where('s.year = :year AND s.month = :month', { year, month })
+      .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .select(['s.id AS id', 's.creditCardId AS "creditCardId"'])
+      .getRawMany<{ id: string; creditCardId: string }>();
+
+    const cardIds = [...new Set(statements.map((item) => item.creditCardId))];
+
+    const purchaseRows = await this.items
+      .createQueryBuilder('si')
+      .innerJoin('si.statement', 's')
+      .innerJoin('si.purchase', 'p')
       .innerJoin('p.tenant', 't')
-      .where('p.createdByUserId = :uid', { uid: userId })
+      .innerJoin('p.creditCard', 'cc')
+      .where('s.year = :year AND s.month = :month', { year, month })
+      .andWhere('cc.createdByUserId = :uid', { uid: userId })
       .select('t.id', 'tenantId')
-      .addSelect('t.name', 'tenantName')
-      .addSelect(
-        'COALESCE(SUM(CAST(p.totalAmount AS numeric)), 0)',
-        'totalAmount',
-      )
+      .addSelect('COALESCE(SUM(CAST(si.amount AS numeric)), 0)', 'totalAmount')
       .groupBy('t.id')
-      .addGroupBy('t.name')
-      .orderBy('t.name', 'ASC')
       .getRawMany<{
         tenantId: string;
-        tenantName: string;
         totalAmount: string;
       }>();
 
-    const subsRows = await this.subs
-      .createQueryBuilder('sub')
-      .leftJoin('sub.tenant', 't')
-      .where('sub.createdByUserId = :uid', { uid: userId })
-      .andWhere('sub.active = true')
-      .select('t.id', 'tenantId')
-      .addSelect('t.name', 'tenantName')
-      .addSelect('COALESCE(SUM(CAST(sub.amount AS numeric)), 0)', 'totalAmount')
-      .groupBy('t.id')
-      .addGroupBy('t.name')
+    const subsRows =
+      cardIds.length > 0
+        ? await this.subs
+            .createQueryBuilder('sub')
+            .where('sub.createdByUserId = :uid', { uid: userId })
+            .andWhere('sub.active = true')
+            .andWhere('sub.tenantId IS NOT NULL')
+            .andWhere('sub.creditCardId IN (:...cardIds)', { cardIds })
+            .select('sub.tenantId', 'tenantId')
+            .addSelect(
+              'COALESCE(SUM(CAST(sub.amount AS numeric)), 0)',
+              'totalAmount',
+            )
+            .groupBy('sub.tenantId')
+            .getRawMany<{
+              tenantId: string;
+              totalAmount: string;
+            }>()
+        : [];
+
+    const fixedExpenseRows = await this.fixedExpenses
+      .createQueryBuilder('fixedExpense')
+      .where('fixedExpense.createdByUserId = :uid', { uid: userId })
+      .andWhere('fixedExpense.tenantId IS NOT NULL')
+      .select('fixedExpense.tenantId', 'tenantId')
+      .addSelect(
+        'COALESCE(SUM(CAST(fixedExpense.amount AS numeric)), 0)',
+        'totalAmount',
+      )
+      .groupBy('fixedExpense.tenantId')
       .getRawMany<{
-        tenantId: string | null;
-        tenantName: string | null;
+        tenantId: string;
         totalAmount: string;
       }>();
 
-    return mergeByTenant(purchaseRows, subsRows);
+    const incomeSourceRows = await this.incomeSources
+      .createQueryBuilder('incomeSource')
+      .where('incomeSource.createdByUserId = :uid', { uid: userId })
+      .andWhere('incomeSource.tenantId IS NOT NULL')
+      .select('incomeSource.tenantId', 'tenantId')
+      .addSelect(
+        'COALESCE(SUM(CAST(incomeSource.amount AS numeric)), 0)',
+        'totalAmount',
+      )
+      .groupBy('incomeSource.tenantId')
+      .getRawMany<{
+        tenantId: string;
+        totalAmount: string;
+      }>();
+
+    const purchaseMap = new Map(
+      purchaseRows.map((row) => [row.tenantId, Number(row.totalAmount || 0)]),
+    );
+    const subsMap = new Map(
+      subsRows.map((row) => [row.tenantId, Number(row.totalAmount || 0)]),
+    );
+    const fixedExpenseMap = new Map(
+      fixedExpenseRows.map((row) => [row.tenantId, Number(row.totalAmount || 0)]),
+    );
+    const incomeSourceMap = new Map(
+      incomeSourceRows.map((row) => [row.tenantId, Number(row.totalAmount || 0)]),
+    );
+
+    return tenants
+      .map((tenant) => {
+        const purchasesTotal = purchaseMap.get(tenant.id) ?? 0;
+        const subscriptionsTotal = subsMap.get(tenant.id) ?? 0;
+        const fixedExpensesTotal = fixedExpenseMap.get(tenant.id) ?? 0;
+        const incomeSourcesTotal = incomeSourceMap.get(tenant.id) ?? 0;
+        const reportExpensesTotal = purchasesTotal + subscriptionsTotal;
+        const accumulatedAmount =
+          incomeSourcesTotal - fixedExpensesTotal - reportExpensesTotal;
+
+        return {
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          purchasesTotal: purchasesTotal.toFixed(2),
+          subscriptionsTotal: subscriptionsTotal.toFixed(2),
+          reportExpensesTotal: reportExpensesTotal.toFixed(2),
+          fixedExpensesTotal: fixedExpensesTotal.toFixed(2),
+          incomeSourcesTotal: incomeSourcesTotal.toFixed(2),
+          accumulatedAmount: accumulatedAmount.toFixed(2),
+        };
+      });
   }
 
   async totalGlobal(userId: string, opts?: { statementId?: string }) {

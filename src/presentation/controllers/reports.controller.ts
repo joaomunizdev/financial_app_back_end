@@ -2,7 +2,10 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ReportsService } from '../../application/services/reports.service';
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
-import { ReportsQueryDto } from '../dtos/reports-query.dto';
+import {
+  ReportsByTenantQueryDto,
+  ReportsQueryDto,
+} from '../dtos/reports-query.dto';
 
 @ApiTags('reports')
 @ApiBearerAuth('bearer')
@@ -12,10 +15,8 @@ export class ReportsController {
   constructor(private readonly service: ReportsService) {}
 
   @Get('by-tenant')
-  byTenant(@ReqUser() user: any, @Query() q: ReportsQueryDto) {
-    return this.service.totalsByTenant(user.userId, {
-      statementId: q.statementId,
-    });
+  byTenant(@ReqUser() user: any, @Query() q: ReportsByTenantQueryDto) {
+    return this.service.totalsByTenant(user.userId, q.year, q.month);
   }
 
   @Get('global')
