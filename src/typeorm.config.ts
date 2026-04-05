@@ -14,6 +14,9 @@ import { AddTenantToSubscriptions1720000002000 } from './infrastructure/persiste
 import { FixedExpense } from './infrastructure/persistence/typeorm/entities/fixed-expense.entity';
 import { CreateFixedExpenses1720000003000 } from './infrastructure/persistence/typeorm/migrations/1720000003000_add_fixed_expenses';
 import { AddTenantToFixedExpenses1720000004000 } from './infrastructure/persistence/typeorm/migrations/1720000004000_add_tenant_to_fixed_expenses';
+import { IncomeSource } from './infrastructure/persistence/typeorm/entities/income-source.entity';
+import { CreateIncomeSources1720000005000 } from './infrastructure/persistence/typeorm/migrations/1720000005000_add_income_sources';
+import { AddTenantToIncomeSources1720000006000 } from './infrastructure/persistence/typeorm/migrations/1720000006000_add_tenant_to_income_sources';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -31,6 +34,7 @@ export const AppDataSource = new DataSource({
     StatementItem,
     Subscription,
     FixedExpense,
+    IncomeSource,
   ],
   migrations: [
     Init1700000000000,
@@ -39,6 +43,8 @@ export const AppDataSource = new DataSource({
     AddTenantToSubscriptions1720000002000,
     CreateFixedExpenses1720000003000,
     AddTenantToFixedExpenses1720000004000,
+    CreateIncomeSources1720000005000,
+    AddTenantToIncomeSources1720000006000,
   ],
   synchronize: false,
 });

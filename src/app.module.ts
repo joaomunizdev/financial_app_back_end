@@ -28,6 +28,9 @@ import { ConfigModule } from '@nestjs/config';
 import { FixedExpense } from './infrastructure/persistence/typeorm/entities/fixed-expense.entity';
 import { FixedExpensesController } from './presentation/controllers/fixed-expenses.controller';
 import { FixedExpensesService } from './application/services/fixed-expenses.service';
+import { IncomeSource } from './infrastructure/persistence/typeorm/entities/income-source.entity';
+import { IncomeSourcesController } from './presentation/controllers/income-sources.controller';
+import { IncomeSourcesService } from './application/services/income-sources.service';
 
 @Module({
   imports: [
@@ -52,6 +55,7 @@ import { FixedExpensesService } from './application/services/fixed-expenses.serv
         StatementItem,
         Subscription,
         FixedExpense,
+        IncomeSource,
       ],
       synchronize: false,
     }),
@@ -64,6 +68,7 @@ import { FixedExpensesService } from './application/services/fixed-expenses.serv
       StatementItem,
       Subscription,
       FixedExpense,
+      IncomeSource,
     ]),
   ],
   controllers: [
@@ -76,6 +81,7 @@ import { FixedExpensesService } from './application/services/fixed-expenses.serv
     SubscriptionsController,
     ReportsPdfController,
     FixedExpensesController,
+    IncomeSourcesController,
   ],
   providers: [
     AuthService,
@@ -87,6 +93,7 @@ import { FixedExpensesService } from './application/services/fixed-expenses.serv
     SubscriptionsService,
     ReportsPdfService,
     FixedExpensesService,
+    IncomeSourcesService,
   ],
 })
 export class AppModule {}
