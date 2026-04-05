@@ -11,6 +11,9 @@ import { AddStatements1700000000001 } from './infrastructure/persistence/typeorm
 import { Subscription } from './infrastructure/persistence/typeorm/entities/subscription.entity';
 import { CreateSubscriptions1720000000000 } from './infrastructure/persistence/typeorm/migrations/1720000000000_add_subscriptions';
 import { AddTenantToSubscriptions1720000002000 } from './infrastructure/persistence/typeorm/migrations/1720000002000_add_tenant_to_subscriptions';
+import { FixedExpense } from './infrastructure/persistence/typeorm/entities/fixed-expense.entity';
+import { CreateFixedExpenses1720000003000 } from './infrastructure/persistence/typeorm/migrations/1720000003000_add_fixed_expenses';
+import { AddTenantToFixedExpenses1720000004000 } from './infrastructure/persistence/typeorm/migrations/1720000004000_add_tenant_to_fixed_expenses';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -27,12 +30,15 @@ export const AppDataSource = new DataSource({
     Statement,
     StatementItem,
     Subscription,
+    FixedExpense,
   ],
   migrations: [
     Init1700000000000,
     AddStatements1700000000001,
     CreateSubscriptions1720000000000,
     AddTenantToSubscriptions1720000002000,
+    CreateFixedExpenses1720000003000,
+    AddTenantToFixedExpenses1720000004000,
   ],
   synchronize: false,
 });

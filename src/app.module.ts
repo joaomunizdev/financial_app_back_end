@@ -25,6 +25,9 @@ import { SubscriptionsService } from './application/services/subscriptions.servi
 import { ReportsPdfService } from './application/services/reports-pdf.service';
 import { ReportsPdfController } from './presentation/controllers/reports-pdf.controller';
 import { ConfigModule } from '@nestjs/config';
+import { FixedExpense } from './infrastructure/persistence/typeorm/entities/fixed-expense.entity';
+import { FixedExpensesController } from './presentation/controllers/fixed-expenses.controller';
+import { FixedExpensesService } from './application/services/fixed-expenses.service';
 
 @Module({
   imports: [
@@ -48,6 +51,7 @@ import { ConfigModule } from '@nestjs/config';
         Statement,
         StatementItem,
         Subscription,
+        FixedExpense,
       ],
       synchronize: false,
     }),
@@ -59,6 +63,7 @@ import { ConfigModule } from '@nestjs/config';
       Statement,
       StatementItem,
       Subscription,
+      FixedExpense,
     ]),
   ],
   controllers: [
@@ -70,6 +75,7 @@ import { ConfigModule } from '@nestjs/config';
     StatementsController,
     SubscriptionsController,
     ReportsPdfController,
+    FixedExpensesController,
   ],
   providers: [
     AuthService,
@@ -80,6 +86,7 @@ import { ConfigModule } from '@nestjs/config';
     StatementsService,
     SubscriptionsService,
     ReportsPdfService,
+    FixedExpensesService,
   ],
 })
 export class AppModule {}
