@@ -263,14 +263,16 @@ export class StatementsService {
 
   async list(
     userId: string,
-    opts: { creditCardId: string; year?: number; month?: number },
+    opts: { creditCardId?: string; year?: number; month?: number },
   ) {
-    const card = await this.cards.findOne({
-      where: { id: opts.creditCardId, createdByUserId: userId },
-    });
-    if (!card) throw new ForbiddenException();
+    if (opts.creditCardId) {
+      const card = await this.cards.findOne({
+        where: { id: opts.creditCardId, createdByUserId: userId },
+      });
+      if (!card) throw new ForbiddenException();
+    }
 
-    if (opts.year && opts.month) {
+    if (opts.creditCardId && opts.year && opts.month) {
       const one = await this.statements.findOne({
         where: {
           creditCardId: opts.creditCardId,
@@ -283,9 +285,29 @@ export class StatementsService {
       return one;
     }
 
-    return this.statements.find({
-      where: { creditCardId: opts.creditCardId },
-      order: { year: 'DESC', month: 'DESC' },
-    });
+    const qb = this.statements
+      .createQueryBuilder('statement')
+      .innerJoinAndSelect('statement.creditCard', 'creditCard')
+      .where('creditCard.createdByUserId = :userId', { userId });
+
+    if (opts.creditCardId) {
+      qb.andWhere('statement.creditCardId = :creditCardId', {
+        creditCardId: opts.creditCardId,
+      });
+    }
+
+    if (opts.year) {
+      qb.andWhere('statement.year = :year', { year: opts.year });
+    }
+
+    if (opts.month) {
+      qb.andWhere('statement.month = :month', { month: opts.month });
+    }
+
+    return qb
+      .orderBy('statement.year', 'DESC')
+      .addOrderBy('statement.month', 'DESC')
+      .addOrderBy('creditCard.nickname', 'ASC')
+      .getMany();
   }
 }

@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
@@ -46,11 +47,14 @@ export class StatementsController {
   @Get()
   @ApiOkResponse({
     description:
-      'List statements by card. If year & month are passed returns a single statement or 404.',
+      'List statements. You can filter by creditCardId and/or by year and month.',
   })
+  @ApiQuery({ name: 'creditCardId', required: false, type: String })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiQuery({ name: 'month', required: false, type: Number })
   list(
     @ReqUser() user: any,
-    @Query('creditCardId') creditCardId: string,
+    @Query('creditCardId') creditCardId?: string,
     @Query('year') year?: string,
     @Query('month') month?: string,
   ) {
