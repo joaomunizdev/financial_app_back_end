@@ -129,59 +129,43 @@ export class ReportsPdfService {
         amount: string;
       }>();
 
-    type Row = { label: string; amount: number };
-    type Bucket = {
-      purchases: Row[];
-      subscriptions: Row[];
-      subtotalPurchases: number;
-      subtotalSubs: number;
-      subtotal: number;
+    type ReportRow = {
+      label: string;
+      amount: number;
+      cardName: string;
     };
-    const byCard: Record<string, Bucket> = {};
-    const ensureCard = (cid?: string | null) => {
-      if (!cid) return;
-      if (!byCard[cid]) {
-        byCard[cid] = {
-          purchases: [],
-          subscriptions: [],
-          subtotalPurchases: 0,
-          subtotalSubs: 0,
-          subtotal: 0,
-        };
-      }
-    };
-    for (const c of cardIds) ensureCard(c);
+    const reportRows: ReportRow[] = [];
 
-    const fmtDate = (d?: string | null) =>
-      d ? new Date(d).toISOString().slice(0, 10) : '';
     for (const r of purchaseRows) {
-      const cid = r.creditCardId;
-      if (!cid) continue;
-      ensureCard(cid);
       const amt = Number(r.amount || 0);
       const label = r.label?.trim() || 'Compra';
-      byCard[cid].purchases.push({ label, amount: amt });
-      byCard[cid].subtotalPurchases += amt;
+      reportRows.push({
+        label,
+        amount: amt,
+        cardName: cardName(r.creditCardId),
+      });
     }
 
     for (const r of subsRows) {
-      const cid = r.creditCardId;
-      if (!cid) continue;
-      ensureCard(cid);
       const amt = Number(r.amount || 0);
       const label = r.description?.trim() || 'Assinatura';
-      byCard[cid].subscriptions.push({ label, amount: amt });
-      byCard[cid].subtotalSubs += amt;
+      reportRows.push({
+        label,
+        amount: amt,
+        cardName: cardName(r.creditCardId),
+      });
     }
 
-    let grandPurchases = 0;
-    let grandSubs = 0;
-    for (const cid of Object.keys(byCard)) {
-      byCard[cid].subtotal =
-        byCard[cid].subtotalPurchases + byCard[cid].subtotalSubs;
-      grandPurchases += byCard[cid].subtotalPurchases;
-      grandSubs += byCard[cid].subtotalSubs;
-    }
+    reportRows.sort((a, b) => a.label.localeCompare(b.label));
+
+    const grandPurchases = purchaseRows.reduce(
+      (sum, row) => sum + Number(row.amount || 0),
+      0,
+    );
+    const grandSubs = subsRows.reduce(
+      (sum, row) => sum + Number(row.amount || 0),
+      0,
+    );
     const grandTotal = grandPurchases + grandSubs;
 
     const fixedExpenseRows = await this.fixedExpenses.find({
@@ -251,94 +235,28 @@ export class ReportsPdfService {
 
     doc.moveDown(0.8);
 
-    const cardsSorted = [...cardIds].sort((a, b) =>
-      cardName(a).localeCompare(cardName(b)),
-    );
+    doc.font('Helvetica-Bold').fontSize(12).text('Lancamentos do periodo', col.label, doc.y);
+    doc.moveDown(0.1);
+    line();
+    doc.moveDown(0.2);
+    doc.font('Helvetica').fontSize(10);
 
-    for (const cid of cardsSorted) {
-      const sec = byCard[cid];
-      if (!sec) continue;
-
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(13)
-        .text(`Cartão: ${cardName(cid)}`, LM, doc.y, { underline: true });
-      doc.moveDown(0.4);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('Compras', col.label, doc.y);
-      doc.moveDown(0.1);
-      line();
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-
-      if (sec.purchases.length === 0) {
-        ensureSpace();
-        doc.text('— Sem compras —', col.label, doc.y);
-      } else {
-        for (const r of sec.purchases) {
-          ensureSpace(18);
-          doc.text(r.label, col.label, doc.y, { width: 420 });
-          doc.text(this.brl(r.amount), col.amount, doc.y, {
-            width: 70,
-            align: 'right',
-          });
-          doc.moveDown(0.1);
-        }
+    if (reportRows.length === 0) {
+      ensureSpace();
+      doc.text('— Sem lancamentos —', col.label, doc.y);
+    } else {
+      for (const row of reportRows) {
+        ensureSpace(18);
+        doc.text(`${row.label} (${row.cardName})`, col.label, doc.y, { width: 420 });
+        doc.text(this.brl(row.amount), col.amount, doc.y, {
+          width: 70,
+          align: 'right',
+        });
+        doc.moveDown(0.1);
       }
-
-      doc.moveDown(0.2);
-      doc.font('Helvetica-Bold').text('Subtotal compras', col.label, doc.y);
-      doc.text(this.brl(sec.subtotalPurchases), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-      doc.moveDown(0.5);
-
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(11)
-        .text('Assinaturas', col.label, doc.y);
-      doc.moveDown(0.1);
-      line();
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-
-      if (sec.subscriptions.length === 0) {
-        ensureSpace();
-        doc.text('— Sem assinaturas —', col.label, doc.y);
-      } else {
-        for (const r of sec.subscriptions) {
-          ensureSpace(18);
-          doc.text(r.label, col.label, doc.y, { width: 420 });
-          doc.text(this.brl(r.amount), col.amount, doc.y, {
-            width: 70,
-            align: 'right',
-          });
-          doc.moveDown(0.1);
-        }
-      }
-
-      doc.moveDown(0.2);
-      doc.font('Helvetica-Bold').text('Subtotal assinaturas', col.label, doc.y);
-      doc.text(this.brl(sec.subtotalSubs), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.4);
-      line();
-      doc.moveDown(0.2);
-
-      doc.font('Helvetica-Bold').fontSize(11);
-      doc.text('Total Cartão', col.label, doc.y);
-      doc.text(this.brl(sec.subtotal), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.8);
     }
 
+    doc.moveDown(0.8);
     line(undefined, '#333');
     doc.moveDown(0.4);
     doc
