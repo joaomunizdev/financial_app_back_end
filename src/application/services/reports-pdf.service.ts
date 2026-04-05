@@ -13,6 +13,8 @@ import { Subscription } from '../../infrastructure/persistence/typeorm/entities/
 import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
+import { FixedExpense } from '../../infrastructure/persistence/typeorm/entities/fixed-expense.entity';
+import { IncomeSource } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 
 @Injectable()
 export class ReportsPdfService {
@@ -28,6 +30,10 @@ export class ReportsPdfService {
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
+    @InjectRepository(FixedExpense)
+    private readonly fixedExpenses: Repository<FixedExpense>,
+    @InjectRepository(IncomeSource)
+    private readonly incomeSources: Repository<IncomeSource>,
   ) {}
 
   private brl(n: number) {
@@ -177,6 +183,29 @@ export class ReportsPdfService {
       grandSubs += byCard[cid].subtotalSubs;
     }
     const grandTotal = grandPurchases + grandSubs;
+
+    const fixedExpenseRows = await this.fixedExpenses.find({
+      where: { createdByUserId: userId, tenantId },
+      order: { description: 'ASC' },
+    });
+
+    const incomeSourceRows = await this.incomeSources.find({
+      where: { createdByUserId: userId, tenantId },
+      order: { description: 'ASC' },
+    });
+
+    const showBalanceSection =
+      fixedExpenseRows.length > 0 && incomeSourceRows.length > 0;
+    const totalFixedExpenses = fixedExpenseRows.reduce(
+      (sum, item) => sum + Number(item.amount || 0),
+      0,
+    );
+    const totalIncomeSources = incomeSourceRows.reduce(
+      (sum, item) => sum + Number(item.amount || 0),
+      0,
+    );
+    const remainingBalance =
+      totalIncomeSources - totalFixedExpenses - grandTotal;
 
     const monthStr = String(month).padStart(2, '0');
     const filename = `relatório_${tenant.name.replace(
@@ -336,6 +365,84 @@ export class ReportsPdfService {
       width: 70,
       align: 'right',
     });
+
+    if (showBalanceSection) {
+      doc.moveDown(1);
+      ensureSpace(180);
+      line(undefined, '#333');
+      doc.moveDown(0.5);
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(12)
+        .text('Saldo do responsável', col.label, doc.y);
+      doc.moveDown(0.3);
+
+      doc.font('Helvetica-Bold').fontSize(11).text('Fontes de renda', col.label, doc.y);
+      doc.moveDown(0.1);
+      line();
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10);
+
+      for (const incomeSource of incomeSourceRows) {
+        ensureSpace(18);
+        doc.text(incomeSource.description, col.label, doc.y, { width: 420 });
+        doc.text(this.brl(Number(incomeSource.amount || 0)), col.amount, doc.y, {
+          width: 70,
+          align: 'right',
+        });
+        doc.moveDown(0.1);
+      }
+
+      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').text('Total de renda', col.label, doc.y);
+      doc.text(this.brl(totalIncomeSources), col.amount, doc.y, {
+        width: 70,
+        align: 'right',
+      });
+
+      doc.moveDown(0.5);
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(11)
+        .text('Despesas fixas', col.label, doc.y);
+      doc.moveDown(0.1);
+      line();
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10);
+
+      for (const fixedExpense of fixedExpenseRows) {
+        ensureSpace(18);
+        doc.text(fixedExpense.description, col.label, doc.y, { width: 420 });
+        doc.text(this.brl(Number(fixedExpense.amount || 0)), col.amount, doc.y, {
+          width: 70,
+          align: 'right',
+        });
+        doc.moveDown(0.1);
+      }
+
+      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').text('Total despesas fixas', col.label, doc.y);
+      doc.text(this.brl(totalFixedExpenses), col.amount, doc.y, {
+        width: 70,
+        align: 'right',
+      });
+
+      doc.moveDown(0.3);
+      doc.font('Helvetica-Bold').text('Gastos no relatorio', col.label, doc.y);
+      doc.text(this.brl(grandTotal), col.amount, doc.y, {
+        width: 70,
+        align: 'right',
+      });
+
+      doc.moveDown(0.3);
+      line();
+      doc.moveDown(0.3);
+      doc.font('Helvetica-Bold').fontSize(12).text('Saldo restante', col.label, doc.y);
+      doc.text(this.brl(remainingBalance), col.amount, doc.y, {
+        width: 70,
+        align: 'right',
+      });
+    }
 
     doc.end();
   }
