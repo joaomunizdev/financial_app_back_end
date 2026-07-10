@@ -53,6 +53,7 @@ export class ReportsService {
       .innerJoin('s.creditCard', 'cc')
       .where('s.year = :year AND s.month = :month', { year, month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
       .select(['s.id AS id', 's.creditCardId AS "creditCardId"'])
       .getRawMany<{ id: string; creditCardId: string }>();
 
@@ -66,6 +67,7 @@ export class ReportsService {
       .innerJoin('p.creditCard', 'cc')
       .where('s.year = :year AND s.month = :month', { year, month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
       .select('t.id', 'tenantId')
       .addSelect('COALESCE(SUM(CAST(si.amount AS numeric)), 0)', 'totalAmount')
       .groupBy('t.id')
@@ -78,8 +80,10 @@ export class ReportsService {
       cardIds.length > 0
         ? await this.subs
             .createQueryBuilder('sub')
+            .innerJoin('sub.creditCard', 'cc')
             .where('sub.createdByUserId = :uid', { uid: userId })
             .andWhere('sub.active = true')
+            .andWhere('cc.active = true')
             .andWhere('sub.tenantId IS NOT NULL')
             .andWhere('sub.creditCardId IN (:...cardIds)', { cardIds })
             .select('sub.tenantId', 'tenantId')
@@ -169,19 +173,24 @@ export class ReportsService {
       if (!st) throw new NotFoundException('Statement not found');
       if (st.creditCard.createdByUserId !== userId)
         throw new ForbiddenException();
+      if (!st.creditCard.active) throw new NotFoundException('Statement not found');
       return { totalAmount: st.totalAmount };
     }
 
     const p = await this.purchases
       .createQueryBuilder('p')
+      .innerJoin('p.creditCard', 'cc')
       .where('p.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
       .select('COALESCE(SUM(CAST(p.totalAmount AS numeric)),0)', 'sum')
       .getRawOne<{ sum: string }>();
 
     const s = await this.subs
       .createQueryBuilder('sub')
+      .innerJoin('sub.creditCard', 'cc')
       .where('sub.createdByUserId = :uid', { uid: userId })
       .andWhere('sub.active = true')
+      .andWhere('cc.active = true')
       .select('COALESCE(SUM(CAST(sub.amount AS numeric)),0)', 'sum')
       .getRawOne<{ sum: string }>();
 

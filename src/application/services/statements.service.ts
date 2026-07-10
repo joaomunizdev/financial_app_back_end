@@ -54,7 +54,11 @@ export class StatementsService {
     locked?: boolean;
   }) {
     const card = await this.cards.findOne({
-      where: { id: params.creditCardId, createdByUserId: params.userId },
+      where: {
+        id: params.creditCardId,
+        createdByUserId: params.userId,
+        active: true,
+      },
     });
     if (!card)
       throw new ForbiddenException(
@@ -160,7 +164,7 @@ export class StatementsService {
 
   async listByCard(userId: string, creditCardId: string) {
     const card = await this.cards.findOne({
-      where: { id: creditCardId, createdByUserId: userId },
+      where: { id: creditCardId, createdByUserId: userId, active: true },
     });
     if (!card) throw new ForbiddenException();
     return this.statements.find({
@@ -177,6 +181,7 @@ export class StatementsService {
     if (!st) throw new NotFoundException();
     if (st.creditCard.createdByUserId !== userId)
       throw new ForbiddenException();
+    if (!st.creditCard.active) throw new NotFoundException();
     return st;
   }
 
@@ -267,7 +272,7 @@ export class StatementsService {
   ) {
     if (opts.creditCardId) {
       const card = await this.cards.findOne({
-        where: { id: opts.creditCardId, createdByUserId: userId },
+        where: { id: opts.creditCardId, createdByUserId: userId, active: true },
       });
       if (!card) throw new ForbiddenException();
     }
@@ -288,7 +293,8 @@ export class StatementsService {
     const qb = this.statements
       .createQueryBuilder('statement')
       .innerJoinAndSelect('statement.creditCard', 'creditCard')
-      .where('creditCard.createdByUserId = :userId', { userId });
+      .where('creditCard.createdByUserId = :userId', { userId })
+      .andWhere('creditCard.active = true');
 
     if (opts.creditCardId) {
       qb.andWhere('statement.creditCardId = :creditCardId', {

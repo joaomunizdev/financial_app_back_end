@@ -8,14 +8,16 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
-import { Repository, Between } from "typeorm";
+import { Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
+import { CreditCard } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 
 @Injectable()
 export class PurchasesService {
   constructor(
-    @InjectRepository(Purchase) private readonly purchases: Repository<Purchase>
+    @InjectRepository(Purchase) private readonly purchases: Repository<Purchase>,
+    @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>
   ) {}
 
   private validateInstallments(p: Partial<Purchase>) {
@@ -40,6 +42,10 @@ export class PurchasesService {
     if (!input.totalAmount || Number(input.totalAmount) <= 0) {
       throw new BadRequestException("totalAmount must be > 0");
     }
+    const card = await this.cards.findOne({
+      where: { id: input.creditCardId, createdByUserId: userId, active: true },
+    });
+    if (!card) throw new ForbiddenException("Credit card not found or inactive");
     input.createdByUserId = userId;
     this.validateInstallments(input);
     const p = this.purchases.create(input);
@@ -54,24 +60,48 @@ export class PurchasesService {
     dateEnd?: string;
     isInstallment?: boolean;
   }) {
-    const where: any = { createdByUserId: params.userId };
-    if (params.creditCardId) where.creditCardId = params.creditCardId;
-    if (params.tenantId) where.tenantId = params.tenantId;
-    if (params.isInstallment !== undefined)
-      where.isInstallment = params.isInstallment;
-    if (params.dateStart && params.dateEnd) {
-      where.purchaseDate = Between(params.dateStart, params.dateEnd);
+    const qb = this.purchases
+      .createQueryBuilder("purchase")
+      .innerJoinAndSelect("purchase.creditCard", "card")
+      .where("purchase.createdByUserId = :userId", { userId: params.userId })
+      .andWhere("card.active = true");
+
+    if (params.creditCardId) {
+      qb.andWhere("purchase.creditCardId = :creditCardId", {
+        creditCardId: params.creditCardId,
+      });
     }
-    return this.purchases.find({
-      where,
-      order: { purchaseDate: "DESC", createdAt: "DESC" },
-    });
+    if (params.tenantId) {
+      qb.andWhere("purchase.tenantId = :tenantId", { tenantId: params.tenantId });
+    }
+    if (params.isInstallment !== undefined) {
+      qb.andWhere("purchase.isInstallment = :isInstallment", {
+        isInstallment: params.isInstallment,
+      });
+    }
+    if (params.dateStart && params.dateEnd) {
+      qb.andWhere("purchase.purchaseDate BETWEEN :dateStart AND :dateEnd", {
+        dateStart: params.dateStart,
+        dateEnd: params.dateEnd,
+      });
+    }
+
+    return qb
+      .orderBy("purchase.purchaseDate", "DESC")
+      .addOrderBy("purchase.createdAt", "DESC")
+      .getMany();
   }
 
   async update(id: string, patch: Partial<Purchase>, userId: string) {
     const p = await this.purchases.findOne({ where: { id } });
     if (!p) throw new NotFoundException();
     if (p.createdByUserId !== userId) throw new ForbiddenException();
+    if (patch.creditCardId) {
+      const card = await this.cards.findOne({
+        where: { id: patch.creditCardId, createdByUserId: userId, active: true },
+      });
+      if (!card) throw new ForbiddenException("Credit card not found or inactive");
+    }
 
     const merged: Partial<Purchase> = { ...p, ...patch };
     if (merged.totalAmount && Number(merged.totalAmount) <= 0) {
@@ -92,6 +122,8 @@ export class PurchasesService {
     const p = await this.purchases.findOne({ where: { id } });
     if (!p) throw new NotFoundException();
     if (p.createdByUserId !== userId) throw new ForbiddenException();
+    const card = await this.cards.findOne({ where: { id: p.creditCardId, active: true } });
+    if (!card) throw new NotFoundException();
     if (!p.isInstallment || p.installmentsTotal === null) {
       throw new BadRequestException("Purchase is not installment");
     }

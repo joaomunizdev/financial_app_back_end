@@ -17,6 +17,7 @@ import { AddTenantToFixedExpenses1720000004000 } from './infrastructure/persiste
 import { IncomeSource } from './infrastructure/persistence/typeorm/entities/income-source.entity';
 import { CreateIncomeSources1720000005000 } from './infrastructure/persistence/typeorm/migrations/1720000005000_add_income_sources';
 import { AddTenantToIncomeSources1720000006000 } from './infrastructure/persistence/typeorm/migrations/1720000006000_add_tenant_to_income_sources';
+import { AddActiveToCreditCards1720000007000 } from './infrastructure/persistence/typeorm/migrations/1720000007000_add_active_to_credit_cards';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -45,6 +46,7 @@ export const AppDataSource = new DataSource({
     AddTenantToFixedExpenses1720000004000,
     CreateIncomeSources1720000005000,
     AddTenantToIncomeSources1720000006000,
+    AddActiveToCreditCards1720000007000,
   ],
   synchronize: false,
 });

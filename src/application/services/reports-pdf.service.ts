@@ -73,6 +73,7 @@ export class ReportsPdfService {
       .innerJoin('s.creditCard', 'cc')
       .where('s.year = :y AND s.month = :m', { y: year, m: month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
       .select(['s.id AS id', 's."credit_card_id" AS "creditCardId"'])
       .getRawMany<{ id: string; creditCardId: string }>();
 
@@ -92,6 +93,7 @@ export class ReportsPdfService {
       .innerJoin('p.creditCard', 'cc')
       .where('s.year = :y AND s.month = :m', { y: year, m: month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
       .andWhere('p.tenantId = :tid', { tid: tenantId })
       .select([
         'si.id AS "statementItemId"',
@@ -113,8 +115,10 @@ export class ReportsPdfService {
 
     const subsRows = await this.subs
       .createQueryBuilder('sub')
+      .innerJoin('sub.creditCard', 'cc')
       .where('sub.createdByUserId = :uid', { uid: userId })
       .andWhere('sub.active = true')
+      .andWhere('cc.active = true')
       .andWhere('sub.tenantId = :tid', { tid: tenantId })
       .andWhere('sub."creditcardid" IN (:...cids)', { cids: cardIds })
       .select([

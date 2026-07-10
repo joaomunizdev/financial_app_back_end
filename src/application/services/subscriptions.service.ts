@@ -30,7 +30,7 @@ export class SubscriptionsService {
   // create:
   async create(userId: string, dto: CreateSubscriptionDto) {
     const card = await this.cards.findOne({
-      where: { id: dto.creditCardId, createdByUserId: userId },
+      where: { id: dto.creditCardId, createdByUserId: userId, active: true },
     });
     if (!card)
       throw new ForbiddenException(
@@ -55,17 +55,24 @@ export class SubscriptionsService {
   }
 
   async list(userId: string) {
-    return this.subs.find({
-      where: { createdByUserId: userId },
-      order: { createdAt: 'DESC' },
-    });
+    return this.subs
+      .createQueryBuilder('sub')
+      .innerJoinAndSelect('sub.creditCard', 'card')
+      .where('sub.createdByUserId = :userId', { userId })
+      .andWhere('card.active = true')
+      .orderBy('sub.createdAt', 'DESC')
+      .getMany();
   }
 
   async findOne(userId: string, id: string) {
-    const sub = await this.subs.findOne({ where: { id } });
+    const sub = await this.subs.findOne({
+      where: { id },
+      relations: { creditCard: true },
+    });
     if (!sub) throw new NotFoundException('Subscription not found');
     if (sub.createdByUserId !== userId)
       throw new ForbiddenException('Forbidden');
+    if (!sub.creditCard.active) throw new NotFoundException('Subscription not found');
     return sub;
   }
 
@@ -74,7 +81,7 @@ export class SubscriptionsService {
 
     if (dto.creditCardId) {
       const card = await this.cards.findOne({
-        where: { id: dto.creditCardId, createdByUserId: userId },
+        where: { id: dto.creditCardId, createdByUserId: userId, active: true },
       });
       if (!card)
         throw new ForbiddenException(

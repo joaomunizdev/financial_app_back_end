@@ -18,13 +18,17 @@ export class CreditCardsService {
   ) {}
 
   async create(data: Partial<CreditCard>, userId: string) {
-    const card = this.cards.create({ ...data, createdByUserId: userId });
+    const card = this.cards.create({
+      ...data,
+      active: true,
+      createdByUserId: userId,
+    });
     return this.cards.save(card);
   }
 
   async list(userId: string) {
     return this.cards.find({
-      where: { createdByUserId: userId },
+      where: { createdByUserId: userId, active: true },
       order: { nickname: "ASC" },
     });
   }

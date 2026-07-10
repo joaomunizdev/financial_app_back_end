@@ -48,6 +48,9 @@ export class CreditCard {
   })
   limitAmount: string | null = null;
 
+  @Column({ type: "boolean", default: true })
+  active!: boolean;
+
   @ApiProperty({ format: "uuid" })
   @Column({ name: "created_by_user_id", type: "uuid" })
   createdByUserId!: string;
