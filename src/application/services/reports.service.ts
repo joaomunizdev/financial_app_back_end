@@ -197,4 +197,74 @@ export class ReportsService {
     const total = Number(p?.sum || 0) + Number(s?.sum || 0);
     return { totalAmount: total.toFixed(2) };
   }
+
+  async installmentsTotalFromMonth(
+    userId: string,
+    creditCardId: string,
+    year: number,
+    month: number,
+    tenantId?: string,
+  ) {
+    const card = await this.cards.findOne({
+      where: { id: creditCardId, createdByUserId: userId, active: true },
+    });
+    if (!card) {
+      throw new ForbiddenException(
+        'Credit card not found or not owned by user',
+      );
+    }
+
+    if (tenantId) {
+      const tenant = await this.tenants.findOne({
+        where: { id: tenantId, createdByUserId: userId },
+      });
+      if (!tenant) {
+        throw new ForbiddenException(
+          'Tenant not found or not owned by user',
+        );
+      }
+    }
+
+    const referenceDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const query = this.purchases
+      .createQueryBuilder('purchase')
+      .where('purchase.creditCardId = :creditCardId', { creditCardId })
+      .andWhere('purchase.createdByUserId = :userId', { userId })
+      .andWhere('purchase.isInstallment = true')
+      .andWhere('purchase.installmentsTotal > 0')
+      .andWhere(
+        "purchase.purchaseDate + purchase.installmentsTotal * INTERVAL '1 month' > CAST(:referenceDate AS date)",
+        { referenceDate },
+      );
+
+    if (tenantId) {
+      query.andWhere('purchase.tenantId = :tenantId', { tenantId });
+    }
+
+    const purchases = await query.getMany();
+
+    const referenceIndex = year * 12 + month - 1;
+    const total = purchases.reduce((sum, purchase) => {
+      const [purchaseYear, purchaseMonth] = purchase.purchaseDate
+        .slice(0, 7)
+        .split('-')
+        .map(Number);
+      const purchaseIndex = purchaseYear * 12 + purchaseMonth - 1;
+      const installmentsTotal = purchase.installmentsTotal ?? 0;
+      const previousInstallments = Math.max(
+        0,
+        Math.min(referenceIndex - purchaseIndex, installmentsTotal),
+      );
+      const installmentAmount =
+        Math.round((Number(purchase.totalAmount) / installmentsTotal) * 100) /
+        100;
+      const remainingAmount =
+        Number(purchase.totalAmount) -
+        installmentAmount * previousInstallments;
+
+      return sum + remainingAmount;
+    }, 0);
+
+    return { totalAmount: total.toFixed(2) };
+  }
 }

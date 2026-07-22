@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ReportsService } from '../../application/services/reports.service';
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
 import {
+  InstallmentsTotalQueryDto,
   ReportsByTenantQueryDto,
   ReportsQueryDto,
 } from '../dtos/reports-query.dto';
@@ -24,5 +25,19 @@ export class ReportsController {
     return this.service.totalGlobal(user.userId, {
       statementId: q.statementId,
     });
+  }
+
+  @Get('installments-total')
+  installmentsTotal(
+    @ReqUser() user: any,
+    @Query() q: InstallmentsTotalQueryDto,
+  ) {
+    return this.service.installmentsTotalFromMonth(
+      user.userId,
+      q.creditCardId,
+      q.year,
+      q.month,
+      q.tenantId,
+    );
   }
 }
