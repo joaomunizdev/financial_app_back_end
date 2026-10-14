@@ -6,6 +6,7 @@ import {
   Res,
   UseGuards,
   ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
@@ -38,7 +39,7 @@ export class ReportsPdfController {
   })
   async tenantMonthlyPdf(
     @ReqUser() user: any,
-    @Param('tenantId') tenantId: string,
+    @Param('tenantId', new ParseUUIDPipe()) tenantId: string,
     @Query('year', ParseIntPipe) year: number,
     @Query('month', ParseIntPipe) month: number,
     @Res() res: Response,

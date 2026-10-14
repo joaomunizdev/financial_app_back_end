@@ -5,17 +5,22 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Min,
   ValidateIf,
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { IsMoney } from "./money.validator";
 
 export class CreatePurchaseDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() creditCardId!: string;
   @ApiProperty({ format: "uuid" }) @IsUUID() tenantId!: string;
-  @ApiProperty({ example: "Groceries" }) @IsString() description!: string;
+  @ApiProperty({ example: "Groceries", maxLength: 255 })
+  @IsString()
+  @Length(1, 255)
+  description!: string;
   @ApiProperty({ example: "2025-08-01" }) @IsDateString() purchaseDate!: string;
-  @ApiProperty({ example: "350.40" }) @IsString() totalAmount!: string;
+  @ApiProperty({ example: "350.40" }) @IsMoney() totalAmount!: string;
   @ApiProperty({ example: false }) @IsBoolean() isInstallment!: boolean;
 
   @ApiPropertyOptional({ example: 6 })
@@ -42,6 +47,7 @@ export class UpdatePurchaseDto {
   @ApiPropertyOptional({ example: "Groceries" })
   @IsOptional()
   @IsString()
+  @Length(1, 255)
   description?: string;
   @ApiPropertyOptional({ example: "2025-08-01" })
   @IsOptional()
@@ -49,7 +55,7 @@ export class UpdatePurchaseDto {
   purchaseDate?: string;
   @ApiPropertyOptional({ example: "350.40" })
   @IsOptional()
-  @IsString()
+  @IsMoney()
   totalAmount?: string;
   @ApiPropertyOptional({ example: true })
   @IsOptional()

@@ -1,28 +1,42 @@
-import { IsEmail, IsString, MinLength } from "class-validator";
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsString,
+  Length,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 
 export class RegisterDto {
-  @ApiProperty({ example: "John Doe" })
+  @ApiProperty({ example: "John Doe", maxLength: 120 })
   @IsString()
+  @Length(1, 120)
   name!: string;
 
   @ApiProperty({ example: "john@example.com" })
   @IsEmail()
+  @MaxLength(180)
   email!: string;
 
-  @ApiProperty({ minLength: 6, example: "StrongPass123" })
+  // bcrypt only uses the first 72 bytes
+  @ApiProperty({ minLength: 8, maxLength: 72, example: "StrongPass123" })
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
+  @MaxLength(72)
   password!: string;
 }
 
 export class LoginDto {
   @ApiProperty({ example: "john@example.com" })
   @IsEmail()
+  @MaxLength(180)
   email!: string;
 
-  @ApiProperty({ minLength: 6, example: "StrongPass123" })
+  // No minimum here so accounts created under older rules can still log in
+  @ApiProperty({ example: "StrongPass123" })
   @IsString()
-  @MinLength(6)
+  @IsNotEmpty()
+  @MaxLength(72)
   password!: string;
 }

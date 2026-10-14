@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -65,7 +66,7 @@ export class StatementsController {
 
   @Get(':id')
   @ApiOkResponse({ description: 'Get a statement with items' })
-  get(@ReqUser() user: any, @Param('id') id: string) {
+  get(@ReqUser() user: any, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.findById(id, user.userId);
   }
 
@@ -73,7 +74,7 @@ export class StatementsController {
   @ApiOkResponse({ description: 'Update statement metadata/adjustment' })
   update(
     @ReqUser() user: any,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateStatementDto,
   ) {
     return this.service.update(id, user.userId, dto as any);
@@ -83,7 +84,7 @@ export class StatementsController {
   @ApiOkResponse({ description: 'Mark statement as paid' })
   pay(
     @ReqUser() user: any,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: PayStatementDto,
   ) {
     return this.service.pay(id, user.userId, dto.amount, dto.paidAt);
