@@ -4,7 +4,7 @@ import {
   splitInstallments,
   toCents,
 } from './money';
-import { monthDiff, monthPeriod, todayInReportTimeZone } from './dates';
+import { addMonths, monthDiff, monthPeriod, todayInReportTimeZone } from './dates';
 
 describe('money', () => {
   it('converts amounts to integer cents without float drift', () => {
@@ -47,6 +47,14 @@ describe('dates', () => {
       periodStart: '2025-12-01',
       periodEnd: '2026-01-01',
     });
+  });
+
+  it('adds months clamping the day to the end of the target month', () => {
+    expect(addMonths('2026-08-09', 0)).toBe('2026-08-09');
+    expect(addMonths('2026-08-09', 5)).toBe('2027-01-09');
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonths('2028-01-31', 1)).toBe('2028-02-29');
+    expect(addMonths('2026-10-31', 13)).toBe('2027-11-30');
   });
 
   it('computes month differences by year-month', () => {
