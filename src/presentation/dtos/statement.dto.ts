@@ -7,9 +7,8 @@ import {
   IsUUID,
   Max,
   Min,
-  IsNotEmpty,
-  Matches,
 } from 'class-validator';
+import { IsMoney } from './money.validator';
 
 export class CreateStatementDto {
   @ApiProperty({ format: 'uuid' }) @IsUUID() creditCardId!: string;
@@ -42,8 +41,12 @@ export class UpdateStatementDto {
   @IsOptional()
   @IsBoolean()
   locked?: boolean;
-  @ApiPropertyOptional({ example: '0.00' })
+  @ApiPropertyOptional({
+    example: '45.90',
+    description: 'Valor em BRL como string; negativo para créditos/estornos.',
+  })
   @IsOptional()
+  @IsMoney({ allowNegative: true })
   adjustmentAmount?: string;
 }
 
@@ -52,10 +55,7 @@ export class PayStatementDto {
     example: '1550.90',
     description: 'Valor pago em BRL como string (máx. 2 casas decimais).',
   })
-  @IsNotEmpty()
-  @Matches(/^\d+(\.\d{1,2})?$/, {
-    message: 'amount deve ser número positivo com até 2 casas decimais',
-  })
+  @IsMoney()
   amount!: string;
 
   @ApiPropertyOptional({ example: '2025-08-20' })

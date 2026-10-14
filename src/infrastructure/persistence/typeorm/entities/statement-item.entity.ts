@@ -11,6 +11,10 @@ import {
 import { Purchase } from "./purchase.entity";
 import { ApiProperty } from "@nestjs/swagger";
 import { Statement } from "./statement.entity";
+import { Subscription } from "./subscription.entity";
+import { Tenant } from "./tenant.entity";
+
+export type StatementItemKind = "purchase" | "subscription";
 
 @Entity({ name: "statement_items" })
 @Index("statement_items_statement_idx", ["statementId"])
@@ -27,17 +31,49 @@ export class StatementItem {
   @JoinColumn({ name: "statement_id" })
   statement!: Statement;
 
-  @ApiProperty({ format: "uuid" })
-  @Column({ name: "purchase_id", type: "uuid" })
-  purchaseId!: string;
+  @ApiProperty({ enum: ["purchase", "subscription"] })
+  @Column({ type: "varchar", length: 20, default: "purchase" })
+  kind!: StatementItemKind;
 
-  @ManyToOne(() => Purchase, { onDelete: "CASCADE" })
+  @ApiProperty({ format: "uuid", nullable: true })
+  @Column({ name: "purchase_id", type: "uuid", nullable: true })
+  purchaseId: string | null = null;
+
+  @ManyToOne(() => Purchase, { onDelete: "CASCADE", nullable: true })
   @JoinColumn({ name: "purchase_id" })
-  purchase!: Purchase;
+  purchase!: Purchase | null;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  @Column({ name: "subscription_id", type: "uuid", nullable: true })
+  subscriptionId: string | null = null;
+
+  @ManyToOne(() => Subscription, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "subscription_id" })
+  subscription!: Subscription | null;
+
+  @ApiProperty({
+    format: "uuid",
+    nullable: true,
+    description: "Tenant the amount is attributed to, snapshotted at generation",
+  })
+  @Column({ name: "tenant_id", type: "uuid", nullable: true })
+  tenantId: string | null = null;
+
+  @ManyToOne(() => Tenant, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "tenant_id" })
+  tenant!: Tenant | null;
 
   @ApiProperty({ example: "Parcela 2/6" })
   @Column({ type: "varchar", length: 120 })
   label!: string;
+
+  @ApiProperty({
+    example: 2,
+    nullable: true,
+    description: "Installment number (k of k/n); null for one-time purchases",
+  })
+  @Column({ name: "installment_number", type: "int", nullable: true })
+  installmentNumber: number | null = null;
 
   @ApiProperty({ example: "200.00" })
   @Column({ name: "amount", type: "numeric", precision: 14, scale: 2 })

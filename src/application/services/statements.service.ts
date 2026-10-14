@@ -10,37 +10,29 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
 import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
 import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Subscription } from '../../infrastructure/persistence/typeorm/entities/subscription.entity';
-import { DataSource } from 'typeorm';
-function monthDiff(a: string, b: string) {
-  const [ay, am] = a.split('-').map(Number);
-  const [by, bm] = b.split('-').map(Number);
-  return (by - ay) * 12 + (bm - am);
-}
+import {
+  fromCents,
+  installmentAmountCents,
+  toCents,
+} from '../utils/money';
+import { monthDiff } from '../utils/dates';
 
-function yyyymmdd(y: number, m: number) {
-  const mm = String(m).padStart(2, '0');
-  return `${y}-${mm}-01`;
-}
+// statement_items.label is varchar(120)
+const LABEL_MAX = 120;
 
 @Injectable()
 export class StatementsService {
   constructor(
     @InjectRepository(Statement)
     private readonly statements: Repository<Statement>,
-    @InjectRepository(StatementItem)
-    private readonly items: Repository<StatementItem>,
-    @InjectRepository(Purchase)
-    private readonly purchases: Repository<Purchase>,
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
-    @InjectRepository(Subscription)
-    private readonly subs: Repository<Subscription>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -65,37 +57,112 @@ export class StatementsService {
         'Credit card not found or not owned by user',
       );
 
-    const exists = await this.statements.findOne({
-      where: {
-        creditCardId: params.creditCardId,
-        year: params.year,
-        month: params.month,
-      },
+    const statementId = await this.dataSource.transaction(async (manager) => {
+      const stmtRepo = manager.getRepository(Statement);
+
+      let st = await stmtRepo.findOne({
+        where: {
+          creditCardId: params.creditCardId,
+          year: params.year,
+          month: params.month,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      // Regeneration rebuilds items from scratch; never do that to a closed statement.
+      if (st && (st.locked || st.paidAt)) {
+        throw new ConflictException(
+          'Statement is locked or paid and cannot be regenerated.',
+        );
+      }
+
+      if (!st) {
+        st = stmtRepo.create({
+          creditCardId: params.creditCardId,
+          year: params.year,
+          month: params.month,
+        });
+      }
+
+      Object.assign(st, {
+        closingDate: params.closingDate ?? null,
+        dueDate: params.dueDate ?? null,
+        locked: params.locked ?? false,
+        adjustmentAmount: '0.00',
+        totalAmount: '0.00',
+      });
+      await stmtRepo.save(st);
+
+      await this.rebuildItems(manager, st, params.userId);
+      return st.id;
     });
 
-    if (exists) {
-      await this.statements.delete({ id: exists.id });
+    return this.findById(statementId, params.userId);
+  }
+
+  /**
+   * Recomputes items and totals of every open (not locked, not paid) statement of
+   * the given cards, keeping their dates and adjustment. Called whenever purchases
+   * or subscriptions change, inside the caller's transaction.
+   */
+  async rebuildOpenStatements(
+    manager: EntityManager,
+    creditCardIds: string[],
+    userId: string,
+  ) {
+    const ids = [...new Set(creditCardIds.filter(Boolean))];
+    if (!ids.length) return;
+
+    const open = await manager.getRepository(Statement).find({
+      where: { creditCardId: In(ids), locked: false, paidAt: IsNull() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    for (const st of open) {
+      await this.rebuildItems(manager, st, userId);
     }
+  }
 
-    const st = this.statements.create({
-      creditCardId: params.creditCardId,
-      year: params.year,
-      month: params.month,
-      closingDate: params.closingDate ?? null,
-      dueDate: params.dueDate ?? null,
-      locked: params.locked ?? false,
-      adjustmentAmount: '0.00',
-      totalAmount: '0.00',
-    });
-    await this.statements.save(st);
+  /** Purchases that appear in a locked or paid statement are frozen. */
+  async assertPurchaseEditable(manager: EntityManager, purchaseId: string) {
+    const closedItems = await manager
+      .getRepository(StatementItem)
+      .createQueryBuilder('si')
+      .innerJoin('si.statement', 's')
+      .where('si.purchaseId = :purchaseId', { purchaseId })
+      .andWhere('(s.locked = true OR s.paidAt IS NOT NULL)')
+      .getCount();
+    if (closedItems > 0) {
+      throw new ConflictException(
+        'Purchase belongs to a locked or paid statement and cannot be changed.',
+      );
+    }
+  }
 
-    const targetYm = `${params.year}-${String(params.month).padStart(2, '0')}`;
-    const purchases = await this.purchases.find({
-      where: {
-        creditCardId: params.creditCardId,
-        createdByUserId: params.userId,
-      },
+  /**
+   * Replaces the statement's items with the purchases/installments that fall in its
+   * month plus a snapshot of the card's active subscriptions, then sets
+   * totalAmount = sum(items) + adjustmentAmount.
+   */
+  private async rebuildItems(
+    manager: EntityManager,
+    st: Statement,
+    userId: string,
+  ) {
+    const itemRepo = manager.getRepository(StatementItem);
+    await itemRepo.delete({ statementId: st.id });
+
+    const targetYm = `${st.year}-${String(st.month).padStart(2, '0')}`;
+    const purchases = await manager.getRepository(Purchase).find({
+      where: { creditCardId: st.creditCardId, createdByUserId: userId },
       order: { purchaseDate: 'ASC' },
+    });
+    const subscriptions = await manager.getRepository(Subscription).find({
+      where: {
+        creditCardId: st.creditCardId,
+        createdByUserId: userId,
+        active: true,
+      },
+      order: { description: 'ASC' },
     });
 
     const newItems: StatementItem[] = [];
@@ -103,74 +170,62 @@ export class StatementsService {
       if (!p.isInstallment) {
         if (p.purchaseDate.slice(0, 7) === targetYm) {
           newItems.push(
-            this.items.create({
+            itemRepo.create({
               statementId: st.id,
+              kind: 'purchase',
               purchaseId: p.id,
+              tenantId: p.tenantId,
               label: 'Compra à vista',
               amount: p.totalAmount,
+              installmentNumber: null,
             }),
           );
         }
       } else {
-        const total = Number(p.totalAmount);
         const parts = p.installmentsTotal ?? 0;
         if (parts < 1) continue;
 
-        const per = Math.round((total / parts) * 100) / 100;
-        const last = Math.round((total - per * (parts - 1)) * 100) / 100;
-
-        const baseYm = `${p.purchaseDate.slice(0, 7)}`;
-        const diff = monthDiff(`${baseYm}-01`, `${targetYm}-01`);
+        const diff = monthDiff(p.purchaseDate, `${targetYm}-01`);
         if (diff < 0 || diff >= parts) continue;
 
-        const amount = diff === parts - 1 ? last : per;
+        const amount = installmentAmountCents(
+          toCents(p.totalAmount),
+          parts,
+          diff + 1,
+        );
         newItems.push(
-          this.items.create({
+          itemRepo.create({
             statementId: st.id,
+            kind: 'purchase',
             purchaseId: p.id,
+            tenantId: p.tenantId,
             label: `Parcela ${diff + 1}/${parts}`,
-            amount: amount.toFixed(2),
+            amount: fromCents(amount),
+            installmentNumber: diff + 1,
           }),
         );
       }
     }
-    if (newItems.length) await this.items.save(newItems);
 
-    const purchasesSum = newItems.reduce(
-      (acc, it) => acc + Number(it.amount),
-      0,
-    );
+    for (const sub of subscriptions) {
+      newItems.push(
+        itemRepo.create({
+          statementId: st.id,
+          kind: 'subscription',
+          subscriptionId: sub.id,
+          tenantId: sub.tenantId ?? null,
+          label: sub.description.slice(0, LABEL_MAX),
+          amount: sub.amount,
+          installmentNumber: null,
+        }),
+      );
+    }
 
-    const rawSubsSum = await this.subs
-      .createQueryBuilder('s')
-      .select('COALESCE(SUM(CAST(s.amount as numeric)), 0)', 'sum')
-      .where('s.creditcardid = :card', { card: params.creditCardId })
-      .andWhere('s.createdbyuserid = :uid', { uid: params.userId })
-      .andWhere('s.active = true')
-      .getRawOne<{ sum: string }>();
-    const subsSumRaw = rawSubsSum?.sum ?? '0';
+    if (newItems.length) await itemRepo.save(newItems);
 
-    const subsSum = Number(subsSumRaw || 0);
-
-    st.totalAmount = (
-      purchasesSum +
-      subsSum +
-      Number(st.adjustmentAmount)
-    ).toFixed(2);
-    await this.statements.save(st);
-
-    return this.findById(st.id, params.userId);
-  }
-
-  async listByCard(userId: string, creditCardId: string) {
-    const card = await this.cards.findOne({
-      where: { id: creditCardId, createdByUserId: userId, active: true },
-    });
-    if (!card) throw new ForbiddenException();
-    return this.statements.find({
-      where: { creditCardId },
-      order: { year: 'DESC', month: 'DESC' },
-    });
+    const itemsCents = newItems.reduce((acc, it) => acc + toCents(it.amount), 0);
+    st.totalAmount = fromCents(itemsCents + toCents(st.adjustmentAmount));
+    await manager.getRepository(Statement).save(st);
   }
 
   async findById(id: string, userId: string) {
@@ -194,13 +249,19 @@ export class StatementsService {
         patch.dueDate !== undefined ||
         patch.adjustmentAmount !== undefined)
     ) {
+      throw new ConflictException(
+        'Statement is locked. Unlock it before changing dates or adjustment.',
+      );
+    }
+
+    if (st.paidAt && patch.locked === false) {
+      throw new ConflictException('Paid statement cannot be unlocked.');
     }
 
     if (patch.adjustmentAmount !== undefined) {
-      const oldAdj = Number(st.adjustmentAmount || 0);
-      const newAdj = Number(patch.adjustmentAmount || 0);
-      const delta = newAdj - oldAdj;
-      st.totalAmount = (Number(st.totalAmount || 0) + delta).toFixed(2);
+      const delta =
+        toCents(patch.adjustmentAmount) - toCents(st.adjustmentAmount);
+      st.totalAmount = fromCents(toCents(st.totalAmount) + delta);
       st.adjustmentAmount = patch.adjustmentAmount as any;
       const { adjustmentAmount, ...rest } = patch as any;
       Object.assign(st, rest);
@@ -212,26 +273,29 @@ export class StatementsService {
   }
 
   async pay(id: string, userId: string, amount: string, paidAt?: string) {
-    const st = await this.findById(id, userId);
-
-    if (!st.locked) {
-      throw new BadRequestException('Statement must be locked before payment.');
-    }
-
-    // Se já estava paga, apenas atualiza o valor/data sem tocar nas parcelas
-    const alreadyPaid = !!st.paidAt;
+    await this.findById(id, userId);
 
     await this.dataSource.transaction(async (manager) => {
       const stmtRepo = manager.getRepository(Statement);
       const itemRepo = manager.getRepository(StatementItem);
       const purchaseRepo = manager.getRepository(Purchase);
 
-      // Recarrega dentro da transação
-      const stmt = await stmtRepo.findOne({ where: { id } });
+      // Recarrega com lock de linha: pagamentos concorrentes são serializados aqui
+      const stmt = await stmtRepo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!stmt)
         throw new ConflictException('Statement not found during payment.');
 
-      if (!alreadyPaid) {
+      if (!stmt.locked) {
+        throw new BadRequestException(
+          'Statement must be locked before payment.',
+        );
+      }
+
+      // Se já estava paga, apenas atualiza o valor/data sem tocar nas parcelas
+      if (!stmt.paidAt) {
         const items = await itemRepo.find({
           where: { statementId: id },
           relations: { purchase: true },
@@ -241,15 +305,15 @@ export class StatementsService {
 
         for (const it of items) {
           const p = it.purchase;
-          if (!p) continue;
+          if (!p || !p.isInstallment || it.installmentNumber == null) continue;
 
-          if (p.isInstallment) {
-            const total = p.installmentsTotal ?? 0;
-            const paid = p.installmentsPaid ?? 0;
-            if (total > 0 && paid < total) {
-              p.installmentsPaid = Math.min(paid + 1, total);
-              toBump.set(p.id, p);
-            }
+          // Pagar a parcela k significa que ao menos k parcelas estão pagas;
+          // nunca diminui, então pagar faturas fora de ordem é seguro.
+          const total = p.installmentsTotal ?? 0;
+          const paidUpTo = Math.min(it.installmentNumber, total);
+          if (paidUpTo > (p.installmentsPaid ?? 0)) {
+            p.installmentsPaid = paidUpTo;
+            toBump.set(p.id, p);
           }
         }
 

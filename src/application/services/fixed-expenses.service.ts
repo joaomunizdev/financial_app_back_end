@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -11,6 +12,12 @@ import {
   UpdateFixedExpenseDto,
 } from '../../presentation/dtos/fixed-expense.dto';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
+
+function assertValidPeriod(e: FixedExpense) {
+  if (e.startDate && e.endDate && e.endDate < e.startDate) {
+    throw new BadRequestException('endDate must be on or after startDate');
+  }
+}
 
 @Injectable()
 export class FixedExpensesService {
@@ -32,8 +39,11 @@ export class FixedExpensesService {
       tenantId: dto.tenantId,
       description: dto.description,
       amount: dto.amount,
+      startDate: dto.startDate ?? null,
+      endDate: dto.endDate ?? null,
       createdByUserId: userId,
     });
+    assertValidPeriod(fixedExpense);
 
     return this.fixedExpenses.save(fixedExpense);
   }
@@ -68,9 +78,13 @@ export class FixedExpensesService {
       });
       if (!tenant)
         throw new ForbiddenException('Tenant not found or not owned by user');
+      // findOne loads the `tenant` relation; save() would persist that stale relation
+      // over the new tenantId, so the relation must be replaced too.
+      fixedExpense.tenant = tenant;
     }
 
     Object.assign(fixedExpense, dto);
+    assertValidPeriod(fixedExpense);
     return this.fixedExpenses.save(fixedExpense);
   }
 

@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  ParseUUIDPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -44,7 +45,7 @@ export class SubscriptionsController {
 
   @Get(':id')
   @ApiOkResponse({ description: 'Get a subscription by id.' })
-  findOne(@ReqUser() u: any, @Param('id') id: string) {
+  findOne(@ReqUser() u: any, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.findOne(u.userId, id);
   }
 
@@ -52,7 +53,7 @@ export class SubscriptionsController {
   @ApiOkResponse({ description: 'Update a subscription.' })
   update(
     @ReqUser() u: any,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateSubscriptionDto,
   ) {
     return this.service.update(u.userId, id, dto);
@@ -60,7 +61,7 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @ApiOkResponse({ description: 'Delete a subscription.' })
-  remove(@ReqUser() u: any, @Param('id') id: string) {
+  remove(@ReqUser() u: any, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.remove(u.userId, id);
   }
 }

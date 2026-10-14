@@ -186,7 +186,7 @@ Example:
 }
 ```
 
-Inactive credit cards can be excluded from operations that require an active card.
+A card can be deactivated with `PATCH /api/credit-cards/:id` (`{"active": false}`); inactive cards and their data are hidden from every endpoint. Cards with purchases or statements cannot be deleted — deactivate them instead.
 
 ## Purchases
 
@@ -236,7 +236,12 @@ paidAt
 paidAmount
 ```
 
-The statement generation process analyzes the card's purchases and determines which transactions and installments belong to the requested period.
+The statement generation process analyzes the card's purchases and determines which transactions and installments belong to the requested period (by the calendar month of the purchase date), and snapshots the card's active subscriptions as statement items.
+
+- `totalAmount = sum(items) + adjustmentAmount`. The adjustment is a manual signed amount (interest, fees, credits).
+- Regenerating an **open** statement rebuilds it in place and resets the adjustment.
+- Locked or paid statements cannot be regenerated, and purchases that appear in them cannot be edited or deleted (HTTP 409).
+- Open statements are updated automatically whenever purchases or subscriptions of the card change.
 
 Example:
 
@@ -274,16 +279,12 @@ This approach keeps the original purchase separated from its monthly financial i
 
 The API includes a statement payment flow.
 
-When a statement is paid, the application can:
+A statement must be locked before it can be paid. Payment runs in a database transaction with a row lock and:
 
-1. Validate the statement.
-2. Retrieve its statement items.
-3. Identify installment purchases.
-4. Update the number of paid installments.
-5. Register the paid amount.
-6. Register the payment date.
+1. Sets `installmentsPaid` of each installment purchase to at least the installment number paid in that statement (idempotent, never decreases, safe for out-of-order payments).
+2. Registers the paid amount and payment date.
 
-The operation uses a database transaction to maintain consistency between the statement and the affected purchases.
+Paying an already-paid statement again only updates amount and date. A paid statement cannot be unlocked.
 
 ## Subscriptions
 
@@ -325,7 +326,7 @@ Electricity
 Insurance
 ```
 
-Fixed expenses can be associated with a tenant and are used in financial reports.
+Fixed expenses can be associated with a tenant and are used in financial reports. Optional `startDate`/`endDate` limit the months in which they count (empty = every month).
 
 ## Income Sources
 
@@ -340,7 +341,7 @@ Rental income
 Consulting
 ```
 
-They can also be associated with a tenant and are used to calculate available financial balance.
+They can also be associated with a tenant and are used to calculate available financial balance. `fixed` incomes count in every month within their optional `startDate`/`endDate`; `one_time` incomes count in the month of their `startDate` (defaults to the creation day, Brazil time).
 
 ## Financial Reports
 
@@ -528,10 +529,11 @@ DB_HOST=host.docker.internal
 
 ## Database Migrations
 
-Run pending migrations:
+Run pending migrations (the CLI reads `.env`; when `DB_HOST` points to `host.docker.internal`, override it on the host):
 
 ```bash
 npm run typeorm:run
+DB_HOST=localhost npm run typeorm:run
 ```
 
 Generate a new migration:
@@ -578,10 +580,22 @@ http://localhost:3000/api
 
 ## Running with Docker
 
-Build and start the application:
+Build and start the application (`-V` refreshes the `node_modules` volume after dependency changes):
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build -V
+```
+
+Optional PostgreSQL container (set `DB_HOST=db` in `.env`):
+
+```bash
+docker compose --profile db up -d
+```
+
+Production image (non-root, health check on `/api/health`, Swagger disabled):
+
+```bash
+docker build --target prod -t financial-app .
 ```
 
 View logs:
@@ -606,7 +620,7 @@ npm run build
 
 ## API Documentation
 
-Swagger UI is available at:
+Swagger UI is available (when `NODE_ENV` is not `production`) at:
 
 ```text
 http://localhost:3000/api/docs
@@ -629,12 +643,20 @@ openapi/swagger.yaml
 
 ## Main API Endpoints
 
+### Health
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/health` | API and database status (public) |
+
 ### Authentication
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| POST | `/api/auth/register` | Register a user |
+| POST | `/api/auth/register` | Register a user (password: 8–72 characters) |
 | POST | `/api/auth/login` | Authenticate a user |
+
+Authentication endpoints are rate-limited to 10 requests per minute per IP (120 per minute for the rest of the API).
 
 ### Credit Cards
 
@@ -715,11 +737,13 @@ openapi/swagger.yaml
 
 ## Testing
 
-Run tests with:
+Run the unit tests (no database needed):
 
 ```bash
 npm test
 ```
+
+CI (`.github/workflows/ci.yml`) runs type checking, tests and the build on every push and pull request.
 
 ## Related Repository
 

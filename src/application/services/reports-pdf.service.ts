@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import * as path from 'path';
 import PDFDocument = require('pdfkit');
 import { Response } from 'express';
 import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
-import { StatementItem } from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
-import { Subscription } from '../../infrastructure/persistence/typeorm/entities/subscription.entity';
-import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
+import {
+  StatementItem,
+  StatementItemKind,
+} from '../../infrastructure/persistence/typeorm/entities/statement-item.entity';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { FixedExpense } from '../../infrastructure/persistence/typeorm/entities/fixed-expense.entity';
@@ -18,6 +20,12 @@ import {
   IncomeSource,
   IncomeSourceType,
 } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
+import { toCents } from '../utils/money';
+import { monthPeriod } from '../utils/dates';
+import { activeInPeriodSql, incomeInPeriodSql } from '../utils/report-periods';
+
+// Resolves to src/assets (ts-node) or dist/assets (build copies assets, see nest-cli.json)
+const LOGO_PATH = path.join(__dirname, '..', '..', 'assets', 'logo.png');
 
 @Injectable()
 export class ReportsPdfService {
@@ -26,10 +34,6 @@ export class ReportsPdfService {
     private readonly statements: Repository<Statement>,
     @InjectRepository(StatementItem)
     private readonly items: Repository<StatementItem>,
-    @InjectRepository(Subscription)
-    private readonly subs: Repository<Subscription>,
-    @InjectRepository(Purchase)
-    private readonly purchases: Repository<Purchase>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
@@ -77,7 +81,7 @@ export class ReportsPdfService {
       .where('s.year = :y AND s.month = :m', { y: year, m: month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
       .andWhere('cc.active = true')
-      .select(['s.id AS id', 's."credit_card_id" AS "creditCardId"'])
+      .select(['s.id AS id', 's.creditCardId AS "creditCardId"'])
       .getRawMany<{ id: string; creditCardId: string }>();
 
     if (stmts.length === 0) {
@@ -89,50 +93,29 @@ export class ReportsPdfService {
     const cardName = (id: string) =>
       cards.find((c) => c.id === id)?.nickname || id;
 
-    const purchaseRows = await this.items
+    // Purchases and subscriptions of the month come from statement items, which
+    // snapshot the tenant each amount is attributed to.
+    const itemRows = await this.items
       .createQueryBuilder('si')
       .innerJoin('si.statement', 's')
-      .innerJoin('si.purchase', 'p')
-      .innerJoin('p.creditCard', 'cc')
+      .innerJoin('s.creditCard', 'cc')
+      .leftJoin('si.purchase', 'p')
       .where('s.year = :y AND s.month = :m', { y: year, m: month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
       .andWhere('cc.active = true')
-      .andWhere('p.tenantId = :tid', { tid: tenantId })
+      .andWhere('si.tenantId = :tid', { tid: tenantId })
       .select([
-        'si.id AS "statementItemId"',
+        'si.kind AS "kind"',
         'cc.id AS "creditCardId"',
-        `CONCAT_WS(' - ', p.description, si.label) AS "label"`,
-        'COALESCE(CAST(si.amount AS numeric), 0) AS "amount"',
-        'p.purchaseDate AS "purchaseDate"',
+        `CASE WHEN si.kind = 'purchase' THEN CONCAT_WS(' - ', p.description, si.label) ELSE si.label END AS "label"`,
+        'COALESCE(si.amount, 0) AS "amount"',
       ])
       .orderBy('cc.nickname', 'ASC')
-      .addOrderBy('p.purchaseDate', 'ASC')
       .addOrderBy('si.id', 'ASC')
       .getRawMany<{
-        statementItemId: string;
+        kind: StatementItemKind;
         creditCardId: string;
         label: string | null;
-        amount: string;
-        purchaseDate: string | null;
-      }>();
-
-    const subsRows = await this.subs
-      .createQueryBuilder('sub')
-      .innerJoin('sub.creditCard', 'cc')
-      .where('sub.createdByUserId = :uid', { uid: userId })
-      .andWhere('sub.active = true')
-      .andWhere('cc.active = true')
-      .andWhere('sub.tenantId = :tid', { tid: tenantId })
-      .andWhere('sub."creditcardid" IN (:...cids)', { cids: cardIds })
-      .select([
-        'sub."creditcardid" AS "creditCardId"',
-        'sub.description AS "description"',
-        'COALESCE(CAST(sub.amount AS numeric), 0) AS "amount"',
-      ])
-      .orderBy('sub.description', 'ASC')
-      .getRawMany<{
-        creditCardId: string;
-        description: string | null;
         amount: string;
       }>();
 
@@ -141,90 +124,79 @@ export class ReportsPdfService {
       amount: number;
       cardName: string;
     };
-    const reportRows: ReportRow[] = [];
-
-    for (const r of purchaseRows) {
-      const amt = Number(r.amount || 0);
-      const label = r.label?.trim() || 'Compra';
-      reportRows.push({
-        label,
-        amount: amt,
-        cardName: cardName(r.creditCardId),
-      });
-    }
-
-    for (const r of subsRows) {
-      const amt = Number(r.amount || 0);
-      const label = r.description?.trim() || 'Assinatura';
-      reportRows.push({
-        label,
-        amount: amt,
-        cardName: cardName(r.creditCardId),
-      });
-    }
+    const reportRows: ReportRow[] = itemRows.map((r) => ({
+      label:
+        r.label?.trim() || (r.kind === 'purchase' ? 'Compra' : 'Assinatura'),
+      amount: Number(r.amount || 0),
+      cardName: cardName(r.creditCardId),
+    }));
 
     reportRows.sort((a, b) => a.label.localeCompare(b.label));
 
-    const grandPurchases = purchaseRows.reduce(
-      (sum, row) => sum + Number(row.amount || 0),
-      0,
+    const sumCents = (rows: { amount: string | null }[]) =>
+      rows.reduce((sum, row) => sum + toCents(row.amount), 0);
+    const grandPurchasesCents = sumCents(
+      itemRows.filter((r) => r.kind === 'purchase'),
     );
-    const grandSubs = subsRows.reduce(
-      (sum, row) => sum + Number(row.amount || 0),
-      0,
+    const grandSubsCents = sumCents(
+      itemRows.filter((r) => r.kind === 'subscription'),
     );
-    const grandTotal = grandPurchases + grandSubs;
+    const grandTotalCents = grandPurchasesCents + grandSubsCents;
 
-    const fixedExpenseRows = await this.fixedExpenses.find({
-      where: { createdByUserId: userId, tenantId },
-      order: { description: 'ASC' },
-    });
+    const { periodStart, periodEnd } = monthPeriod(year, month);
 
-    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const periodEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const fixedExpenseRows = await this.fixedExpenses
+      .createQueryBuilder('fixedExpense')
+      .where('fixedExpense.createdByUserId = :userId', { userId })
+      .andWhere('fixedExpense.tenantId = :tenantId', { tenantId })
+      .andWhere(activeInPeriodSql('fixedExpense'), { periodStart, periodEnd })
+      .orderBy('fixedExpense.description', 'ASC')
+      .getMany();
+
     const incomeSourceRows = await this.incomeSources
       .createQueryBuilder('incomeSource')
       .where('incomeSource.createdByUserId = :userId', { userId })
       .andWhere('incomeSource.tenantId = :tenantId', { tenantId })
-      .andWhere(
-        `(incomeSource.incomeType = :fixedType OR (
-          incomeSource.incomeType = :oneTimeType
-          AND incomeSource.createdAt >= CAST(:periodStart AS date)
-          AND incomeSource.createdAt < CAST(:periodEnd AS date)
-        ))`,
-        {
-          fixedType: IncomeSourceType.FIXED,
-          oneTimeType: IncomeSourceType.ONE_TIME,
-          periodStart,
-          periodEnd,
-        },
-      )
+      .andWhere(incomeInPeriodSql('incomeSource'), {
+        fixedType: IncomeSourceType.FIXED,
+        oneTimeType: IncomeSourceType.ONE_TIME,
+        periodStart,
+        periodEnd,
+      })
       .orderBy('incomeSource.description', 'ASC')
       .getMany();
 
     const showBalanceSection =
       fixedExpenseRows.length > 0 || incomeSourceRows.length > 0;
-    const totalFixedExpenses = fixedExpenseRows.reduce(
-      (sum, item) => sum + Number(item.amount || 0),
-      0,
-    );
-    const totalIncomeSources = incomeSourceRows.reduce(
-      (sum, item) => sum + Number(item.amount || 0),
-      0,
-    );
-    const totalExpenses = grandTotal + totalFixedExpenses;
-    const remainingBalance = totalIncomeSources - totalExpenses;
+    const totalFixedExpensesCents = sumCents(fixedExpenseRows);
+    const totalIncomeSourcesCents = sumCents(incomeSourceRows);
+    const totalExpensesCents = grandTotalCents + totalFixedExpensesCents;
+
+    const grandPurchases = grandPurchasesCents / 100;
+    const grandSubs = grandSubsCents / 100;
+    const grandTotal = grandTotalCents / 100;
+    const totalFixedExpenses = totalFixedExpensesCents / 100;
+    const totalIncomeSources = totalIncomeSourcesCents / 100;
+    const totalExpenses = totalExpensesCents / 100;
+    const remainingBalance =
+      (totalIncomeSourcesCents - totalExpensesCents) / 100;
 
     const monthStr = String(month).padStart(2, '0');
     const filename = `relatório_${tenant.name.replace(
       /\s+/g,
       '_',
     )}_${year}-${monthStr}.pdf`;
+    // ASCII fallback + RFC 5987 UTF-8 name, so tenant names can't break the header
+    const asciiFilename = filename
+      .normalize('NFD')
+      .replace(/[^\x20-\x7E]/g, '')
+      .replace(/["\\]/g, '');
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
 
     const doc = new PDFDocument({
       size: 'A4',
@@ -244,7 +216,7 @@ export class ReportsPdfService {
     };
 
     doc
-      .image('src/assets/logo.png', 20, doc.y - 60, { width: 120 })
+      .image(LOGO_PATH, 20, doc.y - 60, { width: 120 })
       .moveUp()
       .font('Helvetica-Bold')
       .fontSize(16)

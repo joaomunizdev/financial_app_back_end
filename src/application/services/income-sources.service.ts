@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,6 +15,13 @@ import {
   UpdateIncomeSourceDto,
 } from '../../presentation/dtos/income-source.dto';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
+import { todayInReportTimeZone } from '../utils/dates';
+
+function assertValidIncome(i: IncomeSource) {
+  if (i.startDate && i.endDate && i.endDate < i.startDate) {
+    throw new BadRequestException('endDate must be on or after startDate');
+  }
+}
 
 @Injectable()
 export class IncomeSourcesService {
@@ -31,13 +39,19 @@ export class IncomeSourcesService {
     if (!tenant)
       throw new ForbiddenException('Tenant not found or not owned by user');
 
+    const incomeType = dto.incomeType ?? IncomeSourceType.FIXED;
     const incomeSource = this.incomeSources.create({
       tenantId: dto.tenantId,
       description: dto.description,
       amount: dto.amount,
-      incomeType: dto.incomeType ?? IncomeSourceType.FIXED,
+      incomeType,
+      startDate:
+        dto.startDate ??
+        (incomeType === IncomeSourceType.ONE_TIME ? todayInReportTimeZone() : null),
+      endDate: dto.endDate ?? null,
       createdByUserId: userId,
     });
+    assertValidIncome(incomeSource);
 
     return this.incomeSources.save(incomeSource);
   }
@@ -72,9 +86,17 @@ export class IncomeSourcesService {
       });
       if (!tenant)
         throw new ForbiddenException('Tenant not found or not owned by user');
+      // findOne loads the `tenant` relation; save() would persist that stale relation
+      // over the new tenantId, so the relation must be replaced too.
+      incomeSource.tenant = tenant;
     }
 
     Object.assign(incomeSource, dto);
+    // A one-time income must always know which month it belongs to
+    if (incomeSource.incomeType === IncomeSourceType.ONE_TIME && !incomeSource.startDate) {
+      incomeSource.startDate = todayInReportTimeZone();
+    }
+    assertValidIncome(incomeSource);
     return this.incomeSources.save(incomeSource);
   }
 
