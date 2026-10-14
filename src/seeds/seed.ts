@@ -7,6 +7,11 @@ import { CreditCard } from "../infrastructure/persistence/typeorm/entities/credi
 import { Purchase } from "../infrastructure/persistence/typeorm/entities/purchase.entity";
 
 async function run() {
+  // Creates a user with a well-known password: development only.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Refusing to run the development seed in production");
+  }
+
   await AppDataSource.initialize();
   const userRepo = AppDataSource.getRepository(User);
   const tenantRepo = AppDataSource.getRepository(Tenant);
@@ -24,15 +29,21 @@ async function run() {
     await userRepo.save(admin);
   }
 
-  const john = tenantRepo.create({
-    name: "John Doe",
-    createdByUserId: admin.id,
+  // Idempotent: reuse rows from a previous run instead of violating unique constraints.
+  const tenantNamed = async (name: string) =>
+    (await tenantRepo.findOne({ where: { name, createdByUserId: admin!.id } })) ??
+    (await tenantRepo.save(tenantRepo.create({ name, createdByUserId: admin!.id })));
+  const john = await tenantNamed("John Doe");
+  const jane = await tenantNamed("Jane Doe");
+
+  const existingCard = await cardRepo.findOne({
+    where: { nickname: "Main Visa", createdByUserId: admin.id },
   });
-  const jane = tenantRepo.create({
-    name: "Jane Doe",
-    createdByUserId: admin.id,
-  });
-  await tenantRepo.save([john, jane]);
+  if (existingCard) {
+    console.log("Seed data already present, nothing to do.");
+    await AppDataSource.destroy();
+    return;
+  }
 
   const visa = cardRepo.create({
     nickname: "Main Visa",

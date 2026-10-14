@@ -2,8 +2,11 @@ import { Body, Controller, Post } from "@nestjs/common";
 import { AuthService } from "../../application/services/auth.service";
 import { LoginDto, RegisterDto } from "../dtos/auth.dto";
 import { ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 
 @ApiTags("auth")
+// Stricter limit than the global one to slow down credential stuffing/brute force
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 @Controller("/auth")
 export class AuthController {
   constructor(private readonly service: AuthService) {}

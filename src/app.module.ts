@@ -25,12 +25,17 @@ import { SubscriptionsService } from './application/services/subscriptions.servi
 import { ReportsPdfService } from './application/services/reports-pdf.service';
 import { ReportsPdfController } from './presentation/controllers/reports-pdf.controller';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { dataSourceOptions } from './typeorm.config';
+import { validateEnv } from './config/env.validation';
 import { FixedExpense } from './infrastructure/persistence/typeorm/entities/fixed-expense.entity';
 import { FixedExpensesController } from './presentation/controllers/fixed-expenses.controller';
 import { FixedExpensesService } from './application/services/fixed-expenses.service';
 import { IncomeSource } from './infrastructure/persistence/typeorm/entities/income-source.entity';
 import { IncomeSourcesController } from './presentation/controllers/income-sources.controller';
 import { IncomeSourcesService } from './application/services/income-sources.service';
+import { HealthController } from './presentation/controllers/health.controller';
 
 @Module({
   imports: [
@@ -38,27 +43,10 @@ import { IncomeSourcesService } from './application/services/income-sources.serv
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnv,
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT),
-      username: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      entities: [
-        User,
-        Tenant,
-        CreditCard,
-        Purchase,
-        Statement,
-        StatementItem,
-        Subscription,
-        FixedExpense,
-        IncomeSource,
-      ],
-      synchronize: false,
-    }),
+    TypeOrmModule.forRoot(dataSourceOptions),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     TypeOrmModule.forFeature([
       User,
       Tenant,
@@ -82,8 +70,10 @@ import { IncomeSourcesService } from './application/services/income-sources.serv
     ReportsPdfController,
     FixedExpensesController,
     IncomeSourcesController,
+    HealthController,
   ],
   providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     AuthService,
     TenantsService,
     CreditCardsService,
