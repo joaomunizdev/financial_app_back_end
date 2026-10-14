@@ -86,6 +86,9 @@ export class IncomeSourcesService {
       });
       if (!tenant)
         throw new ForbiddenException('Tenant not found or not owned by user');
+      // findOne loads the `tenant` relation; save() would persist that stale relation
+      // over the new tenantId, so the relation must be replaced too.
+      incomeSource.tenant = tenant;
     }
 
     Object.assign(incomeSource, dto);
