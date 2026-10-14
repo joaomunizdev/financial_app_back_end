@@ -14,6 +14,11 @@ import { Purchase } from "./purchase.entity";
 import { DecimalAsStringTransformer } from "../transformers/decimal.transformer";
 import { ApiProperty } from "@nestjs/swagger";
 
+export enum CreditCardType {
+  CREDIT = "credit",
+  DEBIT = "debit",
+}
+
 @Entity({ name: "credit_cards" })
 @Index("credit_cards_owner_nickname_idx", ["createdByUserId", "nickname"])
 export class CreditCard {
@@ -50,6 +55,20 @@ export class CreditCard {
 
   @Column({ type: "boolean", default: true })
   active!: boolean;
+
+  @ApiProperty({
+    enum: CreditCardType,
+    default: CreditCardType.CREDIT,
+    description: "Debit cards do not accept installment purchases",
+  })
+  @Column({
+    name: "card_type",
+    type: "enum",
+    enum: CreditCardType,
+    enumName: "credit_card_type",
+    default: CreditCardType.CREDIT,
+  })
+  cardType!: CreditCardType;
 
   @ApiProperty({ format: "uuid" })
   @Column({ name: "created_by_user_id", type: "uuid" })

@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsEnum,
   IsOptional,
   IsString,
   Length,
@@ -8,6 +9,7 @@ import {
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsMoney } from "./money.validator";
+import { CreditCardType } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 
 export class CreateCreditCardDto {
   @ApiProperty({ example: "Main Visa", maxLength: 80 })
@@ -26,6 +28,10 @@ export class CreateCreditCardDto {
   @IsOptional()
   @IsMoney()
   limitAmount?: string;
+  @ApiPropertyOptional({ enum: CreditCardType, default: CreditCardType.CREDIT })
+  @IsOptional()
+  @IsEnum(CreditCardType)
+  cardType?: CreditCardType;
 }
 export class UpdateCreditCardDto {
   @ApiPropertyOptional({ example: "Main Visa" })
@@ -47,6 +53,14 @@ export class UpdateCreditCardDto {
   @IsOptional()
   @IsMoney()
   limitAmount?: string;
+  @ApiPropertyOptional({
+    enum: CreditCardType,
+    description:
+      "Changing a credit card to debit converts its installment purchases into one purchase per month",
+  })
+  @IsOptional()
+  @IsEnum(CreditCardType)
+  cardType?: CreditCardType;
   @ApiPropertyOptional({
     example: false,
     description: "false hides the card and its data from every endpoint",
