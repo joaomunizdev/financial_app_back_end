@@ -171,6 +171,7 @@ nickname
 brand
 last4
 limitAmount
+cardType
 active
 createdByUserId
 ```
@@ -182,9 +183,12 @@ Example:
   "nickname": "Nubank",
   "brand": "Mastercard",
   "last4": "1234",
-  "limitAmount": "10000.00"
+  "limitAmount": "10000.00",
+  "cardType": "credit"
 }
 ```
+
+`cardType` is `credit` (default) or `debit`. Debit cards only accept one-time purchases: an installment purchase on a debit card returns 400. Changing a credit card to debit (`PATCH {"cardType": "debit"}`) converts each of its installment purchases into one one-time purchase per installment, dated in that installment's month (day clamped to the month's end) and described as `"<description> (k/n)"`. Amounts use the same installment split as statements, statement items are re-pointed to the new purchases, and statement totals do not change.
 
 A card can be deactivated with `PATCH /api/credit-cards/:id` (`{"active": false}`); inactive cards and their data are hidden from every endpoint. Cards with purchases or statements cannot be deleted — deactivate them instead.
 

@@ -59,7 +59,7 @@ src/
 | --- | --- | --- |
 | `User` (`users`) | — | email unique, stored lowercased |
 | `Tenant` (`tenants`) | `createdByUserId` | unique `(created_by_user_id, name)`; a financial grouping ("responsável"), not a multi-tenancy boundary |
-| `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric |
+| `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
 | `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields |
 | `Statement` (`statements`) | via card | unique `(credit_card_id, year, month)`; card FK CASCADE |
 | `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number` |
@@ -74,6 +74,8 @@ Change any of these only deliberately, and update tests/this file.
 ### Credit cards & tenants
 - `list` returns only active cards; nearly every read path filters `card.active = true`. Resources on inactive cards are **not found** (404). Preserve this filter in new queries.
 - `DELETE /credit-cards/:id` → 409 if the card has purchases or statements (deactivate with `PATCH {active:false}` instead).
+- **Debit cards take no installments**: `PurchasesService` rejects `isInstallment=true` on a debit card (create and update, 400).
+- `PATCH {cardType:'debit'}` on a credit card runs `CreditCardsService.convertInstallmentsToMonthly` in one transaction: each installment purchase becomes `installmentsTotal` one-time purchases (`addMonths`, `installmentAmountCents`, description `"<desc> (k/n)"`), statement items are re-pointed by `installmentNumber` (locked/paid statements keep amounts and `Parcela k/n` labels; open ones are rebuilt), the original is deleted. Unmatched items abort the change (409). This deliberately bypasses `assertPurchaseEditable` because totals are preserved. Debit → credit converts nothing.
 - `DELETE /tenants/:id` → 409 if any purchase, subscription, fixed expense, income source or statement item references it.
 
 ### Purchases & installments (`purchases.service.ts`)
