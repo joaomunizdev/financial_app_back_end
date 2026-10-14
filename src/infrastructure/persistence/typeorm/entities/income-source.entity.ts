@@ -36,6 +36,12 @@ export class IncomeSource {
   })
   incomeType!: IncomeSourceType;
 
+  @Column({ name: 'start_date', type: 'date', nullable: true })
+  startDate?: string | null;
+
+  @Column({ name: 'end_date', type: 'date', nullable: true })
+  endDate?: string | null;
+
   @Column('uuid', { name: 'tenantid', nullable: true })
   tenantId?: string | null;
 

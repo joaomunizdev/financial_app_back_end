@@ -8,17 +8,30 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
-import { Repository } from "typeorm";
+import { DataSource, Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
 import { CreditCard } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
+import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
+import { StatementsService } from "./statements.service";
 
 @Injectable()
 export class PurchasesService {
   constructor(
     @InjectRepository(Purchase) private readonly purchases: Repository<Purchase>,
-    @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>
+    @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>,
+    @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
+    private readonly statements: StatementsService,
+    private readonly dataSource: DataSource
   ) {}
+
+  private async assertTenantOwned(tenantId: string | undefined, userId: string) {
+    if (!tenantId) return;
+    const tenant = await this.tenants.findOne({
+      where: { id: tenantId, createdByUserId: userId },
+    });
+    if (!tenant) throw new ForbiddenException("Tenant not found or not owned by user");
+  }
 
   private validateInstallments(p: Partial<Purchase>) {
     if (p.isInstallment === false) {
@@ -46,10 +59,16 @@ export class PurchasesService {
       where: { id: input.creditCardId, createdByUserId: userId, active: true },
     });
     if (!card) throw new ForbiddenException("Credit card not found or inactive");
+    await this.assertTenantOwned(input.tenantId, userId);
     input.createdByUserId = userId;
     this.validateInstallments(input);
-    const p = this.purchases.create(input);
-    return this.purchases.save(p);
+
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Purchase);
+      const p = await repo.save(repo.create(input));
+      await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+      return p;
+    });
   }
 
   async list(params: {
@@ -102,6 +121,7 @@ export class PurchasesService {
       });
       if (!card) throw new ForbiddenException("Credit card not found or inactive");
     }
+    await this.assertTenantOwned(patch.tenantId, userId);
 
     const merged: Partial<Purchase> = { ...p, ...patch };
     if (merged.totalAmount && Number(merged.totalAmount) <= 0) {
@@ -110,8 +130,19 @@ export class PurchasesService {
     if (merged.isInstallment !== undefined) {
       this.validateInstallments(merged);
     }
-    Object.assign(p, merged);
-    return this.purchases.save(p);
+
+    return this.dataSource.transaction(async (manager) => {
+      await this.statements.assertPurchaseEditable(manager, p.id);
+      const previousCardId = p.creditCardId;
+      Object.assign(p, merged);
+      const saved = await manager.getRepository(Purchase).save(p);
+      await this.statements.rebuildOpenStatements(
+        manager,
+        [previousCardId, saved.creditCardId],
+        userId
+      );
+      return saved;
+    });
   }
 
   async setInstallmentsPaid(
@@ -138,6 +169,11 @@ export class PurchasesService {
     const p = await this.purchases.findOne({ where: { id } });
     if (!p) throw new NotFoundException();
     if (p.createdByUserId !== userId) throw new ForbiddenException();
-    await this.purchases.delete(id);
+
+    await this.dataSource.transaction(async (manager) => {
+      await this.statements.assertPurchaseEditable(manager, p.id);
+      await manager.getRepository(Purchase).delete(id);
+      await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+    });
   }
 }

@@ -8,7 +8,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Subscription } from '../../infrastructure/persistence/typeorm/entities/subscription.entity';
 import {
   CreateSubscriptionDto,
@@ -16,6 +16,7 @@ import {
 } from '../../presentation/dtos/subscription.dto';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
+import { StatementsService } from './statements.service';
 
 @Injectable()
 export class SubscriptionsService {
@@ -25,6 +26,8 @@ export class SubscriptionsService {
     @InjectRepository(CreditCard)
     private readonly cards: Repository<CreditCard>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
+    private readonly statements: StatementsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   // create:
@@ -43,15 +46,22 @@ export class SubscriptionsService {
     if (!tenant)
       throw new ForbiddenException('Tenant not found or not owned by user');
 
-    const sub = this.subs.create({
-      creditCardId: dto.creditCardId,
-      tenantId: dto.tenantId, // ✅
-      description: dto.description,
-      amount: dto.amount,
-      active: dto.active ?? true,
-      createdByUserId: userId,
+    // Open statements snapshot active subscriptions, so keep them in sync.
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Subscription);
+      const sub = await repo.save(
+        repo.create({
+          creditCardId: dto.creditCardId,
+          tenantId: dto.tenantId,
+          description: dto.description,
+          amount: dto.amount,
+          active: dto.active ?? true,
+          createdByUserId: userId,
+        }),
+      );
+      await this.statements.rebuildOpenStatements(manager, [sub.creditCardId], userId);
+      return sub;
     });
-    return this.subs.save(sub);
   }
 
   async list(userId: string) {
@@ -97,13 +107,27 @@ export class SubscriptionsService {
         throw new ForbiddenException('Tenant not found or not owned by user');
     }
 
-    Object.assign(sub, dto);
-    return this.subs.save(sub);
+    return this.dataSource.transaction(async (manager) => {
+      const previousCardId = sub.creditCardId;
+      Object.assign(sub, dto);
+      const saved = await manager.getRepository(Subscription).save(sub);
+      await this.statements.rebuildOpenStatements(
+        manager,
+        [previousCardId, saved.creditCardId],
+        userId,
+      );
+      return saved;
+    });
   }
 
   async remove(userId: string, id: string) {
     const sub = await this.findOne(userId, id);
-    await this.subs.remove(sub);
+    const cardId = sub.creditCardId;
+    // Items in closed statements keep their snapshot (subscription_id is SET NULL).
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Subscription).remove(sub);
+      await this.statements.rebuildOpenStatements(manager, [cardId], userId);
+    });
     return { deleted: true };
   }
 }

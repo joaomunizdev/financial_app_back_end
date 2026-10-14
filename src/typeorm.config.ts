@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { DataSource } from 'typeorm';
+import 'dotenv/config';
+import { DataSource, DataSourceOptions } from 'typeorm';
 import { User } from './infrastructure/persistence/typeorm/entities/user.entity';
 import { Tenant } from './infrastructure/persistence/typeorm/entities/tenant.entity';
 import { CreditCard } from './infrastructure/persistence/typeorm/entities/credit-card.entity';
@@ -19,8 +20,14 @@ import { CreateIncomeSources1720000005000 } from './infrastructure/persistence/t
 import { AddTenantToIncomeSources1720000006000 } from './infrastructure/persistence/typeorm/migrations/1720000006000_add_tenant_to_income_sources';
 import { AddActiveToCreditCards1720000007000 } from './infrastructure/persistence/typeorm/migrations/1720000007000_add_active_to_credit_cards';
 import { AddIncomeTypeToIncomeSources1720000008000 } from './infrastructure/persistence/typeorm/migrations/1720000008000_add_income_type_to_income_sources';
+import { AddInstallmentNumberToStatementItems1720000009000 } from './infrastructure/persistence/typeorm/migrations/1720000009000_add_installment_number_to_statement_items';
+import { AddSubscriptionItemsToStatements1720000010000 } from './infrastructure/persistence/typeorm/migrations/1720000010000_add_subscription_items_to_statements';
+import { AddMissingIndexes1720000011000 } from './infrastructure/persistence/typeorm/migrations/1720000011000_add_missing_indexes';
+import { AddValidityDatesToFixedExpensesAndIncome1720000012000 } from './infrastructure/persistence/typeorm/migrations/1720000012000_add_validity_dates_to_fixed_expenses_and_income';
 
-export const AppDataSource = new DataSource({
+// Shared by the Nest app (AppModule) and the TypeORM CLI / seed. `dotenv/config`
+// loads .env for CLI usage; it never overrides variables already set.
+export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   host: process.env.DB_HOST,
   port: Number(process.env.DB_PORT),
@@ -49,6 +56,12 @@ export const AppDataSource = new DataSource({
     AddTenantToIncomeSources1720000006000,
     AddActiveToCreditCards1720000007000,
     AddIncomeTypeToIncomeSources1720000008000,
+    AddInstallmentNumberToStatementItems1720000009000,
+    AddSubscriptionItemsToStatements1720000010000,
+    AddMissingIndexes1720000011000,
+    AddValidityDatesToFixedExpensesAndIncome1720000012000,
   ],
   synchronize: false,
-});
+};
+
+export const AppDataSource = new DataSource(dataSourceOptions);
