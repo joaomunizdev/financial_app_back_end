@@ -11,7 +11,10 @@ import {
 import { DataSource, Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
-import { CreditCard } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
+import {
+  CreditCard,
+  CreditCardType,
+} from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
 import { StatementsService } from "./statements.service";
 
@@ -31,6 +34,13 @@ export class PurchasesService {
       where: { id: tenantId, createdByUserId: userId },
     });
     if (!tenant) throw new ForbiddenException("Tenant not found or not owned by user");
+  }
+
+  /** Debit cards are charged at once: only one-time purchases are allowed. */
+  private assertInstallmentAllowed(card: CreditCard, isInstallment?: boolean) {
+    if (isInstallment && card.cardType === CreditCardType.DEBIT) {
+      throw new BadRequestException("Debit card purchases cannot be installments");
+    }
   }
 
   private validateInstallments(p: Partial<Purchase>) {
@@ -59,6 +69,7 @@ export class PurchasesService {
       where: { id: input.creditCardId, createdByUserId: userId, active: true },
     });
     if (!card) throw new ForbiddenException("Credit card not found or inactive");
+    this.assertInstallmentAllowed(card, input.isInstallment);
     await this.assertTenantOwned(input.tenantId, userId);
     input.createdByUserId = userId;
     this.validateInstallments(input);
@@ -115,11 +126,12 @@ export class PurchasesService {
     const p = await this.purchases.findOne({ where: { id } });
     if (!p) throw new NotFoundException();
     if (p.createdByUserId !== userId) throw new ForbiddenException();
+    let targetCard: CreditCard | null = null;
     if (patch.creditCardId) {
-      const card = await this.cards.findOne({
+      targetCard = await this.cards.findOne({
         where: { id: patch.creditCardId, createdByUserId: userId, active: true },
       });
-      if (!card) throw new ForbiddenException("Credit card not found or inactive");
+      if (!targetCard) throw new ForbiddenException("Credit card not found or inactive");
     }
     await this.assertTenantOwned(patch.tenantId, userId);
 
@@ -129,6 +141,10 @@ export class PurchasesService {
     }
     if (merged.isInstallment !== undefined) {
       this.validateInstallments(merged);
+    }
+    if (merged.isInstallment) {
+      targetCard ??= await this.cards.findOne({ where: { id: merged.creditCardId } });
+      if (targetCard) this.assertInstallmentAllowed(targetCard, true);
     }
 
     return this.dataSource.transaction(async (manager) => {

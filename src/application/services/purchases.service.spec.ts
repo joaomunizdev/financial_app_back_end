@@ -37,7 +37,7 @@ function setup() {
     statements as any,
     dataSource as any,
   );
-  return { service, purchases, tenants, statements, txPurchases, manager };
+  return { service, purchases, cards, tenants, statements, txPurchases, manager };
 }
 
 const input = () => ({
@@ -108,6 +108,51 @@ describe('PurchasesService', () => {
       ['card-1', 'card-2'],
       USER,
     );
+  });
+
+  it('rejects installment purchases on a debit card', async () => {
+    const { service, cards, txPurchases } = setup();
+    cards.findOne.mockResolvedValue({
+      id: 'card-1',
+      createdByUserId: USER,
+      cardType: 'debit',
+    });
+    await expect(service.create(input(), USER)).rejects.toThrow(
+      'Debit card purchases cannot be installments',
+    );
+    expect(txPurchases.save).not.toHaveBeenCalled();
+  });
+
+  it('accepts one-time purchases on a debit card', async () => {
+    const { service, cards, txPurchases } = setup();
+    cards.findOne.mockResolvedValue({
+      id: 'card-1',
+      createdByUserId: USER,
+      cardType: 'debit',
+    });
+    await service.create(
+      { ...input(), isInstallment: false, installmentsTotal: null },
+      USER,
+    );
+    expect(txPurchases.save).toHaveBeenCalled();
+  });
+
+  it('rejects turning a debit purchase into installments on update', async () => {
+    const { service, purchases, cards, txPurchases } = setup();
+    purchases.findOne.mockResolvedValue(existing());
+    cards.findOne.mockResolvedValue({
+      id: 'card-1',
+      createdByUserId: USER,
+      cardType: 'debit',
+    });
+    await expect(
+      service.update(
+        'p-1',
+        { isInstallment: true, installmentsTotal: 3, installmentsPaid: 0 },
+        USER,
+      ),
+    ).rejects.toThrow('Debit card purchases cannot be installments');
+    expect(txPurchases.save).not.toHaveBeenCalled();
   });
 
   it('checks tenant ownership when the tenant changes', async () => {
