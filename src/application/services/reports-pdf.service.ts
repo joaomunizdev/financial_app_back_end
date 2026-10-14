@@ -14,7 +14,10 @@ import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purc
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { FixedExpense } from '../../infrastructure/persistence/typeorm/entities/fixed-expense.entity';
-import { IncomeSource } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
+import {
+  IncomeSource,
+  IncomeSourceType,
+} from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 
 @Injectable()
 export class ReportsPdfService {
@@ -177,13 +180,32 @@ export class ReportsPdfService {
       order: { description: 'ASC' },
     });
 
-    const incomeSourceRows = await this.incomeSources.find({
-      where: { createdByUserId: userId, tenantId },
-      order: { description: 'ASC' },
-    });
+    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const periodEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const incomeSourceRows = await this.incomeSources
+      .createQueryBuilder('incomeSource')
+      .where('incomeSource.createdByUserId = :userId', { userId })
+      .andWhere('incomeSource.tenantId = :tenantId', { tenantId })
+      .andWhere(
+        `(incomeSource.incomeType = :fixedType OR (
+          incomeSource.incomeType = :oneTimeType
+          AND incomeSource.createdAt >= CAST(:periodStart AS date)
+          AND incomeSource.createdAt < CAST(:periodEnd AS date)
+        ))`,
+        {
+          fixedType: IncomeSourceType.FIXED,
+          oneTimeType: IncomeSourceType.ONE_TIME,
+          periodStart,
+          periodEnd,
+        },
+      )
+      .orderBy('incomeSource.description', 'ASC')
+      .getMany();
 
     const showBalanceSection =
-      fixedExpenseRows.length > 0 && incomeSourceRows.length > 0;
+      fixedExpenseRows.length > 0 || incomeSourceRows.length > 0;
     const totalFixedExpenses = fixedExpenseRows.reduce(
       (sum, item) => sum + Number(item.amount || 0),
       0,
@@ -192,8 +214,8 @@ export class ReportsPdfService {
       (sum, item) => sum + Number(item.amount || 0),
       0,
     );
-    const remainingBalance =
-      totalIncomeSources - totalFixedExpenses - grandTotal;
+    const totalExpenses = grandTotal + totalFixedExpenses;
+    const remainingBalance = totalIncomeSources - totalExpenses;
 
     const monthStr = String(month).padStart(2, '0');
     const filename = `relatório_${tenant.name.replace(
@@ -279,11 +301,17 @@ export class ReportsPdfService {
       width: 70,
       align: 'right',
     });
+    doc.moveDown(0.2);
+    doc.font('Helvetica-Bold').text('Despesas fixas', col.label, doc.y);
+    doc.text(this.brl(totalFixedExpenses), col.amount, doc.y, {
+      width: 70,
+      align: 'right',
+    });
     doc.moveDown(0.3);
     line();
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(12).text('Total', col.label, doc.y);
-    doc.text(this.brl(grandTotal), col.amount, doc.y, {
+    doc.text(this.brl(totalExpenses), col.amount, doc.y, {
       width: 70,
       align: 'right',
     });
@@ -352,6 +380,13 @@ export class ReportsPdfService {
       doc.moveDown(0.3);
       doc.font('Helvetica-Bold').text('Gastos no relatorio', col.label, doc.y);
       doc.text(this.brl(grandTotal), col.amount, doc.y, {
+        width: 70,
+        align: 'right',
+      });
+
+      doc.moveDown(0.3);
+      doc.font('Helvetica-Bold').text('Total de despesas', col.label, doc.y);
+      doc.text(this.brl(totalExpenses), col.amount, doc.y, {
         width: 70,
         align: 'right',
       });

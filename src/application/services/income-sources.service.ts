@@ -5,7 +5,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { IncomeSource } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
+import {
+  IncomeSource,
+  IncomeSourceType,
+} from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 import {
   CreateIncomeSourceDto,
   UpdateIncomeSourceDto,
@@ -32,6 +35,7 @@ export class IncomeSourcesService {
       tenantId: dto.tenantId,
       description: dto.description,
       amount: dto.amount,
+      incomeType: dto.incomeType ?? IncomeSourceType.FIXED,
       createdByUserId: userId,
     });
 

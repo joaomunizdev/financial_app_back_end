@@ -10,6 +10,11 @@ import {
 } from 'typeorm';
 import { Tenant } from './tenant.entity';
 
+export enum IncomeSourceType {
+  FIXED = 'fixed',
+  ONE_TIME = 'one_time',
+}
+
 @Entity({ name: 'income_sources' })
 @Index(['createdByUserId'])
 export class IncomeSource {
@@ -21,6 +26,15 @@ export class IncomeSource {
 
   @Column({ type: 'numeric', precision: 12, scale: 2, name: 'amount' })
   amount!: string;
+
+  @Column({
+    type: 'enum',
+    enum: IncomeSourceType,
+    enumName: 'income_source_type',
+    default: IncomeSourceType.FIXED,
+    name: 'incometype',
+  })
+  incomeType!: IncomeSourceType;
 
   @Column('uuid', { name: 'tenantid', nullable: true })
   tenantId?: string | null;

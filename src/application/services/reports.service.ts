@@ -16,7 +16,10 @@ import { StatementItem } from '../../infrastructure/persistence/typeorm/entities
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Subscription } from 'src/infrastructure/persistence/typeorm/entities/subscription.entity';
 import { FixedExpense } from '../../infrastructure/persistence/typeorm/entities/fixed-expense.entity';
-import { IncomeSource } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
+import {
+  IncomeSource,
+  IncomeSourceType,
+} from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 
 @Injectable()
 export class ReportsService {
@@ -58,6 +61,10 @@ export class ReportsService {
       .getRawMany<{ id: string; creditCardId: string }>();
 
     const cardIds = [...new Set(statements.map((item) => item.creditCardId))];
+    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const periodEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
 
     const purchaseRows = await this.items
       .createQueryBuilder('si')
@@ -117,6 +124,19 @@ export class ReportsService {
       .createQueryBuilder('incomeSource')
       .where('incomeSource.createdByUserId = :uid', { uid: userId })
       .andWhere('incomeSource.tenantId IS NOT NULL')
+      .andWhere(
+        `(incomeSource.incomeType = :fixedType OR (
+          incomeSource.incomeType = :oneTimeType
+          AND incomeSource.createdAt >= CAST(:periodStart AS date)
+          AND incomeSource.createdAt < CAST(:periodEnd AS date)
+        ))`,
+        {
+          fixedType: IncomeSourceType.FIXED,
+          oneTimeType: IncomeSourceType.ONE_TIME,
+          periodStart,
+          periodEnd,
+        },
+      )
       .select('incomeSource.tenantId', 'tenantId')
       .addSelect(
         'COALESCE(SUM(CAST(incomeSource.amount AS numeric)), 0)',

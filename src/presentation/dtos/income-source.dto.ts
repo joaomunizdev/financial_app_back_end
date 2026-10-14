@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsNumberString,
   IsOptional,
   IsString,
@@ -6,6 +7,7 @@ import {
   Length,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IncomeSourceType } from '../../infrastructure/persistence/typeorm/entities/income-source.entity';
 
 export class CreateIncomeSourceDto {
   @ApiProperty({ format: 'uuid' })
@@ -20,6 +22,14 @@ export class CreateIncomeSourceDto {
   @ApiProperty({ example: '3500.00', description: 'BRL string' })
   @IsNumberString()
   amount!: string;
+
+  @ApiPropertyOptional({
+    enum: IncomeSourceType,
+    default: IncomeSourceType.FIXED,
+  })
+  @IsOptional()
+  @IsEnum(IncomeSourceType)
+  incomeType?: IncomeSourceType;
 }
 
 export class UpdateIncomeSourceDto {
@@ -38,4 +48,9 @@ export class UpdateIncomeSourceDto {
   @IsOptional()
   @IsNumberString()
   amount?: string;
+
+  @ApiPropertyOptional({ enum: IncomeSourceType })
+  @IsOptional()
+  @IsEnum(IncomeSourceType)
+  incomeType?: IncomeSourceType;
 }

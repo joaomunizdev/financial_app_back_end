@@ -18,6 +18,7 @@ import { IncomeSource } from './infrastructure/persistence/typeorm/entities/inco
 import { CreateIncomeSources1720000005000 } from './infrastructure/persistence/typeorm/migrations/1720000005000_add_income_sources';
 import { AddTenantToIncomeSources1720000006000 } from './infrastructure/persistence/typeorm/migrations/1720000006000_add_tenant_to_income_sources';
 import { AddActiveToCreditCards1720000007000 } from './infrastructure/persistence/typeorm/migrations/1720000007000_add_active_to_credit_cards';
+import { AddIncomeTypeToIncomeSources1720000008000 } from './infrastructure/persistence/typeorm/migrations/1720000008000_add_income_type_to_income_sources';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -47,6 +48,7 @@ export const AppDataSource = new DataSource({
     CreateIncomeSources1720000005000,
     AddTenantToIncomeSources1720000006000,
     AddActiveToCreditCards1720000007000,
+    AddIncomeTypeToIncomeSources1720000008000,
   ],
   synchronize: false,
 });
