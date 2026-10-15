@@ -758,6 +758,7 @@ Default categories (shared, read-only) plus each user's own.
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | GET | `/api/reports/by-tenant` | Generate financial report by tenant |
+| GET | `/api/reports/by-category` | Month's statement items per category (`year`, `month`) |
 | GET | `/api/reports/global` | Generate global financial report |
 | GET | `/api/reports/installments-total` | Calculate future installment commitments |
 | GET | `/api/reports/tenants/:tenantId/monthly-pdf` | Generate monthly PDF report |
