@@ -646,6 +646,8 @@ openapi/swagger.yaml
 
 ## Main API Endpoints
 
+List endpoints accept optional paging: `?page=1&pageSize=10&sortBy=<column>&sortDir=asc|desc` returns `{ items, total, page, pageSize }` (`pageSize` up to 100). Without `page` they return the full array.
+
 ### Health
 
 | Method | Endpoint | Description |

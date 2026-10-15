@@ -167,7 +167,8 @@ Change any of these only deliberately, and update tests/this file.
 
 - Routes under `/api`; Swagger at `/api/docs` (non-production). Keep decorators accurate; `npm run docs:openapi` to export.
 - REST style: `POST` create, `GET` list, `GET :id`, `PATCH :id`, `DELETE :id`, actions as `POST :id/<action>`.
-- Don't change status codes or response shapes without being asked — the frontend (`financial_app_front_end`) depends on them. List endpoints are unpaginated arrays.
+- Don't change status codes or response shapes without being asked — the frontend (`financial_app_front_end`) depends on them.
+- **List paging is opt-in** (`PageQueryDto`, `application/utils/pagination.ts`): without `page` a list endpoint returns the full array (frontend selects, dashboard, PDF export rely on it); with `page` (1-based), `pageSize` (≤ 100, default 10), `sortBy`, `sortDir` it returns `{ items, total, page, pageSize }`. `paginate()` maps client sort keys to columns through a per-endpoint whitelist (unknown keys → default order; `id` always breaks ties) and uses offset/limit, so only to-one joins are allowed. Paged lists: credit-cards, tenants (`search`), categories (`scope=own|default`, `search`), purchases (+ `categoryId`, `search`), subscriptions (`search`, `creditCardId`, `categoryId`, `status=active|inactive`), fixed-expenses, income-sources, statements (card + year + month **without** `page` still returns the single statement or 404).
 - New user-scoped resources: `createdByUserId`, guarded controller, user filter on every query, ownership checks on referenced cards/tenants, respect `card.active`.
 
 ## 11. Testing Guidelines
