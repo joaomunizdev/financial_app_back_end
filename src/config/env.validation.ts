@@ -24,7 +24,7 @@ export function validateEnv(config: Record<string, unknown>) {
     errors.push('RESEND_API_KEY or SMTP_HOST is required in production');
   }
 
-  for (const key of ['DB_PORT', 'PORT', 'SMTP_PORT']) {
+  for (const key of ['DB_PORT', 'PORT', 'SMTP_PORT', 'TRUST_PROXY']) {
     const value = config[key];
     if (value !== undefined && value !== '' && !/^\d+$/.test(String(value))) {
       errors.push(`${key} must be an integer`);
