@@ -5,8 +5,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import * as path from 'path';
-import PDFDocument = require('pdfkit');
 import { Response } from 'express';
 import { Statement } from '../../infrastructure/persistence/typeorm/entities/statement.entity';
 import {
@@ -24,12 +22,14 @@ import { toCents } from '../utils/money';
 import { monthPeriod } from '../utils/dates';
 import { activeInPeriodSql, incomeInPeriodSql } from '../utils/report-periods';
 import { directPurchasesInPeriod } from '../utils/direct-purchases';
+import {
+  TenantReportEntry,
+  createTenantReportPdf,
+} from '../../infrastructure/pdf/tenant-report-pdf';
 import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
 
 const DIRECT_METHOD_LABEL: Record<string, string> = { pix: 'Pix', cash: 'Dinheiro' };
 
-// Resolves to src/assets (ts-node) or dist/assets (build copies assets, see nest-cli.json)
-const LOGO_PATH = path.join(__dirname, '..', '..', 'assets', 'logo.png');
 
 @Injectable()
 export class ReportsPdfService {
@@ -49,16 +49,7 @@ export class ReportsPdfService {
     private readonly purchases: Repository<Purchase>,
   ) {}
 
-  private brl(n: number) {
-    try {
-      return new Intl.NumberFormat('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      }).format(n);
-    } catch {
-      return `R$ ${(+n || 0).toFixed(2)}`;
-    }
-  }
+
 
   /**
    * PDF mensal por tenant, agregando todas as faturas (statements) do usuário
@@ -132,36 +123,23 @@ export class ReportsPdfService {
         amount: string;
       }>();
 
-    type ReportRow = {
-      label: string;
-      amount: number;
-      cardName: string;
-    };
-    const reportRows: ReportRow[] = [
+    const reportRows: TenantReportEntry[] = [
       ...itemRows.map((r) => ({
         label:
           r.label?.trim() || (r.kind === 'purchase' ? 'Compra' : 'Assinatura'),
-        amount: Number(r.amount || 0),
-        cardName: cardName(r.creditCardId),
+        amountCents: toCents(r.amount),
+        origin: cardName(r.creditCardId),
+        kind: r.kind,
       })),
       ...directRows.map((p) => ({
         label: p.description.trim() || 'Compra',
-        amount: Number(p.totalAmount || 0),
-        cardName: DIRECT_METHOD_LABEL[p.paymentMethod] ?? p.paymentMethod,
+        amountCents: toCents(p.totalAmount),
+        origin: DIRECT_METHOD_LABEL[p.paymentMethod] ?? p.paymentMethod,
+        kind: 'purchase' as const,
       })),
     ];
 
     reportRows.sort((a, b) => a.label.localeCompare(b.label));
-
-    const sumCents = (rows: { amount: string | null }[]) =>
-      rows.reduce((sum, row) => sum + toCents(row.amount), 0);
-    const grandPurchasesCents =
-      sumCents(itemRows.filter((r) => r.kind === 'purchase')) +
-      directRows.reduce((sum, p) => sum + toCents(p.totalAmount), 0);
-    const grandSubsCents = sumCents(
-      itemRows.filter((r) => r.kind === 'subscription'),
-    );
-    const grandTotalCents = grandPurchasesCents + grandSubsCents;
 
     const fixedExpenseRows = await this.fixedExpenses
       .createQueryBuilder('fixedExpense')
@@ -184,21 +162,6 @@ export class ReportsPdfService {
       .orderBy('incomeSource.description', 'ASC')
       .getMany();
 
-    const showBalanceSection =
-      fixedExpenseRows.length > 0 || incomeSourceRows.length > 0;
-    const totalFixedExpensesCents = sumCents(fixedExpenseRows);
-    const totalIncomeSourcesCents = sumCents(incomeSourceRows);
-    const totalExpensesCents = grandTotalCents + totalFixedExpensesCents;
-
-    const grandPurchases = grandPurchasesCents / 100;
-    const grandSubs = grandSubsCents / 100;
-    const grandTotal = grandTotalCents / 100;
-    const totalFixedExpenses = totalFixedExpensesCents / 100;
-    const totalIncomeSources = totalIncomeSourcesCents / 100;
-    const totalExpenses = totalExpensesCents / 100;
-    const remainingBalance =
-      (totalIncomeSourcesCents - totalExpensesCents) / 100;
-
     const monthStr = String(month).padStart(2, '0');
     const filename = `relatório_${tenant.name.replace(
       /\s+/g,
@@ -216,181 +179,16 @@ export class ReportsPdfService {
       `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     );
 
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 40,
-      info: { Title: `Relatório Mensal ${tenant.name} - ${year}-${monthStr}` },
+    const doc = createTenantReportPdf({
+      tenantName: tenant.name,
+      year,
+      month,
+      generatedAt: new Date(),
+      entries: reportRows,
+      incomes: incomeSourceRows.map((r) => ({ description: r.description, amountCents: toCents(r.amount) })),
+      fixedExpenses: fixedExpenseRows.map((r) => ({ description: r.description, amountCents: toCents(r.amount) })),
     });
     doc.pipe(res);
-    const LM = 40;
-    const RM = 555;
-    const col = { label: 50, amount: 500 };
-    const ensureSpace = (extra = 22) => {
-      if (doc.y > doc.page.height - 60 - extra) doc.addPage();
-    };
-    const line = (y?: number, color = '#999') => {
-      const yy = y ?? doc.y;
-      doc.moveTo(LM, yy).lineTo(RM, yy).strokeColor(color).stroke();
-    };
-
-    doc
-      .image(LOGO_PATH, 20, doc.y - 60, { width: 120 })
-      .moveUp()
-      .font('Helvetica-Bold')
-      .fontSize(16)
-      .fillColor('#000')
-      .text('Relatório Mensal', LM + 195, doc.y + 20);
-
-    doc.moveDown(0.5);
-    doc
-      .font('Helvetica')
-      .fontSize(11)
-      .fillColor('#000')
-      .text(`Responsável: ${tenant.name}`, LM, doc.y)
-      .text(`Mês: ${monthStr}/${year}`, LM, doc.y);
-
-    doc.moveDown(0.8);
-
-    doc.font('Helvetica-Bold').fontSize(12).text('Lancamentos do periodo', col.label, doc.y);
-    doc.moveDown(0.1);
-    line();
-    doc.moveDown(0.2);
-    doc.font('Helvetica').fontSize(10);
-
-    if (reportRows.length === 0) {
-      ensureSpace();
-      doc.text('— Sem lancamentos —', col.label, doc.y);
-    } else {
-      for (const row of reportRows) {
-        ensureSpace(18);
-        doc.text(`${row.label} (${row.cardName})`, col.label, doc.y, { width: 420 });
-        doc.text(this.brl(row.amount), col.amount, doc.y, {
-          width: 70,
-          align: 'right',
-        });
-        doc.moveDown(0.1);
-      }
-    }
-
-    doc.moveDown(0.8);
-    line(undefined, '#333');
-    doc.moveDown(0.4);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .text('Total geral', col.label, doc.y);
-    doc.moveDown(0.2);
-    doc.font('Helvetica-Bold').fontSize(11).text('Compras', col.label, doc.y);
-    doc.text(this.brl(grandPurchases), col.amount, doc.y, {
-      width: 70,
-      align: 'right',
-    });
-    doc.moveDown(0.2);
-    doc.font('Helvetica-Bold').text('Assinaturas', col.label, doc.y);
-    doc.text(this.brl(grandSubs), col.amount, doc.y, {
-      width: 70,
-      align: 'right',
-    });
-    doc.moveDown(0.2);
-    doc.font('Helvetica-Bold').text('Despesas fixas', col.label, doc.y);
-    doc.text(this.brl(totalFixedExpenses), col.amount, doc.y, {
-      width: 70,
-      align: 'right',
-    });
-    doc.moveDown(0.3);
-    line();
-    doc.moveDown(0.3);
-    doc.font('Helvetica-Bold').fontSize(12).text('Total', col.label, doc.y);
-    doc.text(this.brl(totalExpenses), col.amount, doc.y, {
-      width: 70,
-      align: 'right',
-    });
-
-    if (showBalanceSection) {
-      doc.moveDown(1);
-      ensureSpace(180);
-      line(undefined, '#333');
-      doc.moveDown(0.5);
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .text('Saldo do responsável', col.label, doc.y);
-      doc.moveDown(0.3);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('Fontes de renda', col.label, doc.y);
-      doc.moveDown(0.1);
-      line();
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-
-      for (const incomeSource of incomeSourceRows) {
-        ensureSpace(18);
-        doc.text(incomeSource.description, col.label, doc.y, { width: 420 });
-        doc.text(this.brl(Number(incomeSource.amount || 0)), col.amount, doc.y, {
-          width: 70,
-          align: 'right',
-        });
-        doc.moveDown(0.1);
-      }
-
-      doc.moveDown(0.2);
-      doc.font('Helvetica-Bold').text('Total de renda', col.label, doc.y);
-      doc.text(this.brl(totalIncomeSources), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.5);
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(11)
-        .text('Despesas fixas', col.label, doc.y);
-      doc.moveDown(0.1);
-      line();
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-
-      for (const fixedExpense of fixedExpenseRows) {
-        ensureSpace(18);
-        doc.text(fixedExpense.description, col.label, doc.y, { width: 420 });
-        doc.text(this.brl(Number(fixedExpense.amount || 0)), col.amount, doc.y, {
-          width: 70,
-          align: 'right',
-        });
-        doc.moveDown(0.1);
-      }
-
-      doc.moveDown(0.2);
-      doc.font('Helvetica-Bold').text('Total despesas fixas', col.label, doc.y);
-      doc.text(this.brl(totalFixedExpenses), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.3);
-      doc.font('Helvetica-Bold').text('Gastos no relatorio', col.label, doc.y);
-      doc.text(this.brl(grandTotal), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.3);
-      doc.font('Helvetica-Bold').text('Total de despesas', col.label, doc.y);
-      doc.text(this.brl(totalExpenses), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-
-      doc.moveDown(0.3);
-      line();
-      doc.moveDown(0.3);
-      doc.font('Helvetica-Bold').fontSize(12).text('Saldo restante', col.label, doc.y);
-      doc.text(this.brl(remainingBalance), col.amount, doc.y, {
-        width: 70,
-        align: 'right',
-      });
-    }
-
     doc.end();
   }
 }
