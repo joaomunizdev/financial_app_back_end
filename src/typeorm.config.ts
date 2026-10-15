@@ -85,6 +85,8 @@ export const dataSourceOptions: DataSourceOptions = {
     AddImportKeys1720000019000,
   ],
   synchronize: false,
+  // Production applies pending migrations at startup (the prod image has no ts-node for the CLI).
+  migrationsRun: process.env.NODE_ENV === 'production',
 };
 
 export const AppDataSource = new DataSource(dataSourceOptions);
