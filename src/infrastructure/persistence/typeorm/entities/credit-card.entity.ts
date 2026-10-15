@@ -19,6 +19,20 @@ export enum CreditCardType {
   DEBIT = "debit",
 }
 
+/** Real card brands accepted (stored by official name; CHECK credit_cards_brand_chk). */
+export const CARD_BRANDS = [
+  "Visa",
+  "Mastercard",
+  "Elo",
+  "American Express",
+  "Hipercard",
+  "Diners Club",
+  "Discover",
+  "JCB",
+  "Cabal",
+] as const;
+export type CardBrand = (typeof CARD_BRANDS)[number];
+
 @Entity({ name: "credit_cards" })
 @Index("credit_cards_owner_nickname_idx", ["createdByUserId", "nickname"])
 export class CreditCard {
@@ -30,9 +44,9 @@ export class CreditCard {
   @Column({ type: "varchar", length: 80 })
   nickname!: string;
 
-  @ApiProperty({ example: "Visa" })
+  @ApiProperty({ enum: CARD_BRANDS, example: "Visa" })
   @Column({ type: "varchar", length: 50 })
-  brand!: string;
+  brand!: CardBrand;
 
   @ApiProperty({ example: "1234", minLength: 4, maxLength: 4 })
   @Column({ type: "varchar", length: 4 })
