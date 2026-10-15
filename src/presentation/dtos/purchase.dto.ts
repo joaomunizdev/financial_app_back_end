@@ -15,6 +15,10 @@ import { IsMoney } from "./money.validator";
 export class CreatePurchaseDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() creditCardId!: string;
   @ApiProperty({ format: "uuid" }) @IsUUID() tenantId!: string;
+  @ApiPropertyOptional({ format: "uuid", nullable: true })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string | null;
   @ApiProperty({ example: "Groceries", maxLength: 255 })
   @IsString()
   @Length(1, 255)
@@ -44,6 +48,10 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @IsUUID()
   tenantId?: string;
+  @ApiPropertyOptional({ format: "uuid", nullable: true, description: "null clears it" })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string | null;
   @ApiPropertyOptional({ example: "Groceries" })
   @IsOptional()
   @IsString()

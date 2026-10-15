@@ -17,6 +17,26 @@ import {
 } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
 import { StatementsService } from "./statements.service";
+import { CategoriesService } from "./categories.service";
+import { toCents } from "../utils/money";
+
+/**
+ * True when the update touches anything other than the category. Only those
+ * changes are blocked for purchases that belong to a locked or paid statement.
+ */
+export function changesBeyondCategory(before: Purchase, after: Partial<Purchase>) {
+  const day = (d?: string | null) => (d ? String(d).slice(0, 10) : null);
+  return (
+    after.creditCardId !== before.creditCardId ||
+    after.tenantId !== before.tenantId ||
+    after.description !== before.description ||
+    day(after.purchaseDate) !== day(before.purchaseDate) ||
+    toCents(after.totalAmount) !== toCents(before.totalAmount) ||
+    !!after.isInstallment !== !!before.isInstallment ||
+    (after.installmentsTotal ?? null) !== (before.installmentsTotal ?? null) ||
+    Number(after.installmentsPaid ?? 0) !== Number(before.installmentsPaid ?? 0)
+  );
+}
 
 @Injectable()
 export class PurchasesService {
@@ -25,7 +45,8 @@ export class PurchasesService {
     @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     private readonly statements: StatementsService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly categories: CategoriesService
   ) {}
 
   private async assertTenantOwned(tenantId: string | undefined, userId: string) {
@@ -71,6 +92,7 @@ export class PurchasesService {
     if (!card) throw new ForbiddenException("Credit card not found or inactive");
     this.assertInstallmentAllowed(card, input.isInstallment);
     await this.assertTenantOwned(input.tenantId, userId);
+    await this.categories.assertUsable(input.categoryId, userId);
     input.createdByUserId = userId;
     this.validateInstallments(input);
 
@@ -134,6 +156,7 @@ export class PurchasesService {
       if (!targetCard) throw new ForbiddenException("Credit card not found or inactive");
     }
     await this.assertTenantOwned(patch.tenantId, userId);
+    await this.categories.assertUsable(patch.categoryId, userId);
 
     const merged: Partial<Purchase> = { ...p, ...patch };
     if (merged.totalAmount && Number(merged.totalAmount) <= 0) {
@@ -148,7 +171,10 @@ export class PurchasesService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      await this.statements.assertPurchaseEditable(manager, p.id);
+      // Re-categorizing alone is allowed even when the purchase is in a closed statement.
+      if (changesBeyondCategory(p, merged)) {
+        await this.statements.assertPurchaseEditable(manager, p.id);
+      }
       const previousCardId = p.creditCardId;
       Object.assign(p, merged);
       const saved = await manager.getRepository(Purchase).save(p);
@@ -156,6 +182,11 @@ export class PurchasesService {
         manager,
         [previousCardId, saved.creditCardId],
         userId
+      );
+      await this.statements.syncItemsCategory(
+        manager,
+        { purchaseId: saved.id },
+        saved.categoryId ?? null
       );
       return saved;
     });

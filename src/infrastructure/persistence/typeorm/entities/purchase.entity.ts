@@ -11,6 +11,7 @@ import {
 import { CreditCard } from "./credit-card.entity";
 import { Tenant } from "./tenant.entity";
 import { User } from "./user.entity";
+import { Category } from "./category.entity";
 import { DecimalAsStringTransformer } from "../transformers/decimal.transformer";
 import { ApiProperty } from "@nestjs/swagger";
 
@@ -51,6 +52,14 @@ export class Purchase {
   @ManyToOne(() => User, (user) => user.purchases, { onDelete: "CASCADE" })
   @JoinColumn({ name: "created_by_user_id" })
   createdByUser!: User;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  @Column({ name: "category_id", type: "uuid", nullable: true })
+  categoryId: string | null = null;
+
+  @ManyToOne(() => Category, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "category_id" })
+  category!: Category | null;
 
   @ApiProperty({ maxLength: 255 })
   @Column({ type: "varchar", length: 255 })

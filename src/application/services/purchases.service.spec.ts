@@ -15,7 +15,9 @@ function setup() {
   const statements = {
     rebuildOpenStatements: jest.fn(),
     assertPurchaseEditable: jest.fn(),
+    syncItemsCategory: jest.fn(),
   };
+  const categories = { assertUsable: jest.fn() };
   const txPurchases = {
     create: jest.fn((x: any) => ({ ...x })),
     save: jest.fn(async (x: any) => ({ id: 'p-new', ...x })),
@@ -36,8 +38,9 @@ function setup() {
     tenants as any,
     statements as any,
     dataSource as any,
+    categories as any,
   );
-  return { service, purchases, cards, tenants, statements, txPurchases, manager };
+  return { service, purchases, cards, tenants, statements, categories, txPurchases, manager };
 }
 
 const input = () => ({
@@ -56,6 +59,9 @@ const existing = () => ({
   createdByUserId: USER,
   creditCardId: 'card-1',
   tenantId: 'tenant-1',
+  categoryId: null as string | null,
+  description: 'Mercado',
+  purchaseDate: '2025-03-10',
   totalAmount: '100.00',
   isInstallment: false,
   installmentsTotal: null,
@@ -187,5 +193,44 @@ describe('PurchasesService', () => {
       ['card-1'],
       USER,
     );
+  });
+
+  it('rejects a category the user cannot use', async () => {
+    const { service, categories, txPurchases } = setup();
+    categories.assertUsable.mockRejectedValue(new ForbiddenException());
+    await expect(
+      service.create({ ...input(), categoryId: 'cat-other' }, USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(categories.assertUsable).toHaveBeenCalledWith('cat-other', USER);
+    expect(txPurchases.save).not.toHaveBeenCalled();
+  });
+
+  it('re-categorizes a purchase of a closed statement and its statement items', async () => {
+    const { service, purchases, statements, txPurchases, manager } = setup();
+    purchases.findOne.mockResolvedValue(existing());
+    statements.assertPurchaseEditable.mockRejectedValue(new ConflictException());
+
+    // Same values the edit form sends back, only the category differs.
+    const { id, createdByUserId, ...unchanged } = existing();
+    await service.update('p-1', { ...unchanged, totalAmount: '100.0', categoryId: 'cat-1' }, USER);
+
+    expect(statements.assertPurchaseEditable).not.toHaveBeenCalled();
+    expect(txPurchases.save).toHaveBeenCalled();
+    expect(statements.syncItemsCategory).toHaveBeenCalledWith(
+      manager,
+      { purchaseId: 'p-1' },
+      'cat-1',
+    );
+  });
+
+  it('still blocks other changes together with the category on a closed purchase', async () => {
+    const { service, purchases, statements, txPurchases } = setup();
+    purchases.findOne.mockResolvedValue(existing());
+    statements.assertPurchaseEditable.mockRejectedValue(new ConflictException());
+
+    await expect(
+      service.update('p-1', { categoryId: 'cat-1', totalAmount: '120.00' }, USER),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(txPurchases.save).not.toHaveBeenCalled();
   });
 });

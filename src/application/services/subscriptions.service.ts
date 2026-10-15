@@ -17,6 +17,7 @@ import {
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { StatementsService } from './statements.service';
+import { CategoriesService } from './categories.service';
 
 @Injectable()
 export class SubscriptionsService {
@@ -28,6 +29,7 @@ export class SubscriptionsService {
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     private readonly statements: StatementsService,
     private readonly dataSource: DataSource,
+    private readonly categories: CategoriesService,
   ) {}
 
   // create:
@@ -45,6 +47,7 @@ export class SubscriptionsService {
     });
     if (!tenant)
       throw new ForbiddenException('Tenant not found or not owned by user');
+    await this.categories.assertUsable(dto.categoryId, userId);
 
     // Open statements snapshot active subscriptions, so keep them in sync.
     return this.dataSource.transaction(async (manager) => {
@@ -53,6 +56,7 @@ export class SubscriptionsService {
         repo.create({
           creditCardId: dto.creditCardId,
           tenantId: dto.tenantId,
+          categoryId: dto.categoryId ?? null,
           description: dto.description,
           amount: dto.amount,
           active: dto.active ?? true,
@@ -106,6 +110,7 @@ export class SubscriptionsService {
       if (!tenant)
         throw new ForbiddenException('Tenant not found or not owned by user');
     }
+    await this.categories.assertUsable(dto.categoryId, userId);
 
     return this.dataSource.transaction(async (manager) => {
       const previousCardId = sub.creditCardId;
@@ -115,6 +120,12 @@ export class SubscriptionsService {
         manager,
         [previousCardId, saved.creditCardId],
         userId,
+      );
+      // Closed statements keep their amounts but follow the category.
+      await this.statements.syncItemsCategory(
+        manager,
+        { subscriptionId: saved.id },
+        saved.categoryId ?? null,
       );
       return saved;
     });

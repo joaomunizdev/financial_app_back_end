@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { CreditCard } from './credit-card.entity';
 import { Tenant } from './tenant.entity';
+import { Category } from './category.entity';
 
 @Entity({ name: 'subscriptions' })
 @Index(['createdByUserId'])
@@ -48,4 +49,11 @@ export class Subscription {
   @ManyToOne(() => Tenant, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'tenantid' })
   tenant?: Tenant | null;
+
+  @Column('uuid', { name: 'categoryid', nullable: true })
+  categoryId?: string | null;
+
+  @ManyToOne(() => Category, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'categoryid' })
+  category?: Category | null;
 }

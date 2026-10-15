@@ -122,6 +122,18 @@ export class StatementsService {
     }
   }
 
+  /**
+   * The category is not financial data: it is copied to the source's items in every
+   * statement, including locked and paid ones.
+   */
+  async syncItemsCategory(
+    manager: EntityManager,
+    source: { purchaseId: string } | { subscriptionId: string },
+    categoryId: string | null,
+  ) {
+    await manager.getRepository(StatementItem).update(source, { categoryId });
+  }
+
   /** Purchases that appear in a locked or paid statement are frozen. */
   async assertPurchaseEditable(manager: EntityManager, purchaseId: string) {
     const closedItems = await manager
@@ -175,6 +187,7 @@ export class StatementsService {
               kind: 'purchase',
               purchaseId: p.id,
               tenantId: p.tenantId,
+              categoryId: p.categoryId ?? null,
               label: 'Compra à vista',
               amount: p.totalAmount,
               installmentNumber: null,
@@ -199,6 +212,7 @@ export class StatementsService {
             kind: 'purchase',
             purchaseId: p.id,
             tenantId: p.tenantId,
+            categoryId: p.categoryId ?? null,
             label: `Parcela ${diff + 1}/${parts}`,
             amount: fromCents(amount),
             installmentNumber: diff + 1,
@@ -214,6 +228,7 @@ export class StatementsService {
           kind: 'subscription',
           subscriptionId: sub.id,
           tenantId: sub.tenantId ?? null,
+          categoryId: sub.categoryId ?? null,
           label: sub.description.slice(0, LABEL_MAX),
           amount: sub.amount,
           installmentNumber: null,
