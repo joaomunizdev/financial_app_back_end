@@ -707,6 +707,15 @@ Default categories (shared, read-only) plus each user's own.
 | PATCH | `/api/categories/:id` | Update an own category |
 | DELETE | `/api/categories/:id` | Delete an own category (records become uncategorized) |
 
+### Statement and invoice import
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/api/imports/preview` | Read an OFX/CSV/PDF bank statement or card invoice (multipart `file`, `kind`); returns the lines with suggested action, category and duplicate status. Nothing is saved. |
+| POST | `/api/imports/confirm` | Create the confirmed lines (purchases and one-time incomes); lines already imported are skipped |
+
+Supported: OFX from any bank; Nubank and Inter CSV; PDF statements from Itaú, Mercado Pago, Santander and Nubank; PDF invoices from Itaú (including Magalu/Luiza), Bradesco (Amazon), Mercado Pago and Nubank.
+
 ### Investments
 
 Investments (name, type, institution) and their movements: contributions, withdrawals and balance updates (the value reported on a date). The value on a date is the last balance update plus later contributions minus withdrawals.
