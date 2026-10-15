@@ -44,6 +44,13 @@ describe('ReportsService.totalsByCategory', () => {
     expect(itemsQb.andWhere).toHaveBeenCalledWith('cc.active = true');
   });
 
+  it('filters items and Pix/cash purchases by tenant when asked', async () => {
+    const { service, itemsQb, directQb } = setup([row('c1', 'Lazer', '10.00')]);
+    await service.totalsByCategory('user-1', 2026, 10, 'tenant-9');
+    expect(itemsQb.andWhere).toHaveBeenCalledWith('si.tenantId = :tenantId', { tenantId: 'tenant-9' });
+    expect(directQb.andWhere).toHaveBeenCalledWith('dp.tenantId = :tenantId', { tenantId: 'tenant-9' });
+  });
+
   it('adds Pix/cash purchases of the month to the same categories', async () => {
     const { service, directQb } = setup(
       [row('c1', 'Lazer', '100.00')],

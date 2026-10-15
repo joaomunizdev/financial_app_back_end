@@ -50,7 +50,7 @@ src/
   infrastructure/persistence/typeorm/{entities,migrations,transformers}
   seeds/seed.ts                   idempotent dev seed (refuses NODE_ENV=production)
   docs/openapi.ts                 exports openapi/swagger.{json,yaml}
-  assets/logo.png                 copied to dist/assets by nest-cli.json; resolved from __dirname
+  assets/                         mail images, fonts (Inter, OFL) — copied to dist/assets by nest-cli.json; resolved from __dirname
 ```
 
 ## 5. Core Business Domain
@@ -137,8 +137,8 @@ Change any of these only deliberately, and update tests/this file.
   - `accumulatedAmount = income − fixed − (purchases + subscriptions)`.
 - `GET /reports/global`: with `statementId` → that statement's total; otherwise all-time sum of purchase totals + active subscriptions (semantics unchanged/undefined — confirm with the user before relying on it).
 - `GET /reports/installments-total`: remaining installment amount from the reference month on, by **calendar elapsed months** using the same `splitInstallments` as statements (not `installmentsPaid`).
-- `GET /reports/by-category?year&month`: the month's statement items of active cards plus Pix/cash purchases dated in the month, summed per category, largest first, zero rows dropped: `[{ categoryId, name, icon, totalAmount }]` (`categoryId: null` = uncategorized). Adjustments have no category, so the sum can differ from the statement totals by the adjustments.
-- PDF `GET /reports/tenants/:tenantId/monthly-pdf?year&month`: same rules as by-tenant; 404 if the user has no statements that month. Filename header uses an ASCII fallback + RFC 5987 `filename*`.
+- `GET /reports/by-category?year&month[&tenantId]`: the month's statement items of active cards plus Pix/cash purchases dated in the month, summed per category, largest first, zero rows dropped: `[{ categoryId, name, icon, totalAmount }]` (`categoryId: null` = uncategorized). Adjustments have no category, so the sum can differ from the statement totals by the adjustments.
+- PDF `GET /reports/tenants/:tenantId/monthly-pdf?year&month`: same rules as by-tenant; 404 if the user has no statements that month. Filename header uses an ASCII fallback + RFC 5987 `filename*`. The service only assembles the data; drawing lives in `infrastructure/pdf/tenant-report-pdf.ts` (`createTenantReportPdf`). Content and section order are the report's contract — keep them: header (Responsável, Mês), "Lançamentos do período" (Descrição / Origem = card, Pix or Dinheiro / Valor), "Total geral" (Compras, Assinaturas, Despesas fixas, Total), and, when there is income or fixed expenses, "Saldo do responsável" (Fontes de renda + total, Despesas fixas + total, Gastos no relatório, Total de despesas, Saldo restante). Only the look follows the app: Inter TTFs embedded from `assets/fonts` (OFL license alongside), zinc tokens, indigo period chip, tables with a light header row, rounded total boxes, signed balance in green/red, header repeated on page breaks, footer with page numbers (`bufferPages`). Check layout changes by rendering a sample (`pdftoppm`).
 
 ### Money and dates
 - Columns `numeric(14,2)` (older tables) / `numeric(12,2)` (subscriptions, fixed expenses, income). Amounts travel as **strings**.

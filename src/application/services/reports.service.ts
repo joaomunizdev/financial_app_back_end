@@ -53,21 +53,24 @@ export class ReportsService {
    * cards plus Pix/cash purchases dated in the month. Uncategorized amounts come
    * as categoryId null. Statement adjustments have no category and are not included.
    */
-  async totalsByCategory(userId: string, year: number, month: number) {
+  async totalsByCategory(userId: string, year: number, month: number, tenantId?: string) {
     type Row = {
       categoryId: string | null;
       name: string | null;
       icon: string | null;
       totalAmount: string;
     };
-    const itemRows = await this.items
+    const itemsQb = this.items
       .createQueryBuilder('si')
       .innerJoin('si.statement', 's')
       .innerJoin('s.creditCard', 'cc')
       .leftJoin('si.category', 'c')
       .where('s.year = :year AND s.month = :month', { year, month })
       .andWhere('cc.createdByUserId = :uid', { uid: userId })
-      .andWhere('cc.active = true')
+      .andWhere('cc.active = true');
+    // Optional tenant: the tenant snapshotted on each statement item.
+    if (tenantId) itemsQb.andWhere('si.tenantId = :tenantId', { tenantId });
+    const itemRows = await itemsQb
       .select('si.categoryId', 'categoryId')
       .addSelect('c.name', 'name')
       .addSelect('c.icon', 'icon')
@@ -78,7 +81,9 @@ export class ReportsService {
       .getRawMany<Row>();
 
     const { periodStart, periodEnd } = monthPeriod(year, month);
-    const directRows = await directPurchasesInPeriod(this.purchases, userId, periodStart, periodEnd)
+    const directQb = directPurchasesInPeriod(this.purchases, userId, periodStart, periodEnd);
+    if (tenantId) directQb.andWhere('dp.tenantId = :tenantId', { tenantId });
+    const directRows = await directQb
       .leftJoin('dp.category', 'c')
       .select('dp.categoryId', 'categoryId')
       .addSelect('c.name', 'name')
