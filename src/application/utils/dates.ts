@@ -21,6 +21,19 @@ export function monthPeriod(year: number, month: number) {
   };
 }
 
+/**
+ * Adds calendar months to a YYYY-MM-DD date, clamping the day to the last day of
+ * the target month (2026-01-31 + 1 month = 2026-02-28).
+ */
+export function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.slice(0, 10).split('-').map(Number);
+  const index = y * 12 + (m - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${pad(month)}-${pad(Math.min(d, lastDay))}`;
+}
+
 /** Number of months from a to b, using only the YYYY-MM part of each date. */
 export function monthDiff(a: string, b: string): number {
   const [ay, am] = a.split('-').map(Number);
