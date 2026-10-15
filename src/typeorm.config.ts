@@ -44,6 +44,8 @@ export const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  // Hosted Postgres (Neon, Supabase, ...) requires TLS; local databases don't.
+  ssl: process.env.DB_SSL === 'true',
   entities: [
     User,
     Tenant,
@@ -83,6 +85,8 @@ export const dataSourceOptions: DataSourceOptions = {
     AddImportKeys1720000019000,
   ],
   synchronize: false,
+  // Production applies pending migrations at startup (the prod image has no ts-node for the CLI).
+  migrationsRun: process.env.NODE_ENV === 'production',
 };
 
 export const AppDataSource = new DataSource(dataSourceOptions);

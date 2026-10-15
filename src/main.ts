@@ -1,5 +1,6 @@
 // src/main.ts
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -7,7 +8,10 @@ import helmet from 'helmet';
 import { QueryFailedFilter } from './presentation/filters/query-failed.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
+  // Behind a hosting proxy, TRUST_PROXY=<hops> makes req.ip (rate limiting) the client's IP.
+  const trustProxy = Number(process.env.TRUST_PROXY || 0);
+  if (trustProxy > 0) app.set('trust proxy', trustProxy);
 
   app.setGlobalPrefix('/api');
   app.use(helmet());
