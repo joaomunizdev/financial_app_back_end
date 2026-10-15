@@ -57,7 +57,8 @@ src/
 
 | Entity (table) | Ownership | Key relations / notes |
 | --- | --- | --- |
-| `User` (`users`) | — | email unique, stored lowercased |
+| `User` (`users`) | — | email unique, stored lowercased; `cpf` (11 digits, unique when set), `phone`, `birth_date` (nullable for older accounts); `email_verified_at`; `two_factor_enabled` |
+| `AuthCode` (`auth_codes`) | via user | e-mail codes (`email_verification` \| `login`), SHA-256 hash, `expires_at`, `attempts`, `consumed_at`; user FK CASCADE |
 | `Tenant` (`tenants`) | `createdByUserId` | unique `(created_by_user_id, name)`; a financial grouping ("responsável"), not a multi-tenancy boundary |
 | `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
 | `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields |
@@ -118,7 +119,12 @@ Change any of these only deliberately, and update tests/this file.
 
 ## 7. Authentication and Security
 
-- `POST /api/auth/register` (password 8–72 chars, bcrypt, email lowercased, 409 on duplicate) and `POST /api/auth/login` → `{ accessToken }`, payload `{ sub, email }`, expiry `1d`. Login has no minimum length so older accounts still work.
+- `POST /api/auth/register` (password 8–72 chars, bcrypt, email lowercased, valid CPF via `application/utils/cpf.ts`, phone 10–11 digits, birth date 1900..today; 409 on duplicate e-mail or CPF) creates an **unconfirmed** account and e-mails a code. Fictitious/test e-mail domains are refused at sign-up (400 `Email domain not allowed`; list in `application/utils/email.ts`, mirrored in the frontend — keep both in sync); `POST /auth/verify-email` confirms and returns `{ accessToken }` (payload `{ sub, email }`, expiry `1d`). Login has no minimum length so older accounts still work.
+- `POST /api/auth/login` returns `{ accessToken }`, or `{ emailVerificationRequired, email }` (unconfirmed account, code re-sent), or `{ twoFactorRequired, challengeToken }` when the user enabled the second factor; `POST /auth/login/verify` exchanges challenge + code for the access token.
+- Codes: `VerificationCodesService` (6 digits, SHA-256 only, 10 min TTL, 5 attempts, 60 s resend cooldown, issuing a new code consumes older ones). The challenge is a JWT with `purpose: "2fa"` (10 min); **`JwtStrategy` rejects any token carrying `purpose`** — keep that if you add other purpose tokens. Resend endpoints never reveal whether an e-mail exists.
+- Profile: `UsersController` (`/users/me`, `PATCH /users/me`, `POST /users/me/password`, `PATCH /users/me/two-factor`); responses use `toProfile()` (never the entity). Wrong current password is **400, not 401** (the frontend treats 401 as an expired session). **The CPF is permanent**: accounts without one may set it once; changing a set CPF → 400 `CPF cannot be changed`.
+- E-mail: `MailService` (`infrastructure/mail`, nodemailer over `SMTP_*`). Without `SMTP_HOST` it logs the message (env validation requires `SMTP_HOST` in production).
+- Code e-mail template: `infrastructure/mail/code-email.ts` (table-based HTML with inline styles, frontend design tokens, plain-text alternative). Images (`assets/mail/logo-mark.png`, `code-illustration.png`) are **embedded as CID attachments**, so they render without public hosting; keep them PNG (WebP/SVG don't render in Outlook) and small.
 - Every non-auth controller has `@ApiBearerAuth('bearer')` + `@UseGuards(JwtAuthGuard)` at class level; `@ReqUser()` yields `{ userId, email }`. Keep this on new controllers (`HealthController` is the only intentionally public one besides auth).
 - Rate limiting: global 120 req/min per IP; `/auth/*` 10 req/min (`@Throttle`). `HealthController` uses `@SkipThrottle()`.
 - **Ownership pattern** (preserve and replicate): fetch → 404 if missing → 403 if `createdByUserId !== userId`; or query with `createdByUserId: userId` (+ `active: true` for cards) → 403 `'... not found or not owned by user'`. Statements: ownership via `statement.creditCard.createdByUserId`. Always ownership-check referenced cards and tenants.
@@ -176,6 +182,7 @@ npm run seed                # dev only
 npm run docs:openapi        # needs DB
 docker compose up -d --build -V      # dev container (target "dev", runs as uid 1000); -V refreshes the node_modules volume after dependency changes
 docker compose --profile db up -d    # optional Postgres service "db"
+# docker compose also starts Mailpit (SMTP on :1025, inbox UI on http://localhost:8025) for dev e-mail
 docker build --target prod -t financial-app .   # production image (non-root, healthcheck on /api/health)
 ```
 
@@ -188,6 +195,7 @@ docker build --target prod -t financial-app .   # production image (non-root, he
 | `PORT` | `main.ts` | default 3000 |
 | `FRONTEND_ORIGIN` | CORS | default `http://localhost:5173` |
 | `NODE_ENV` | Swagger, seed | `production` disables Swagger and the seed |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `MailService` | optional in dev (logs instead), `SMTP_HOST` required in production; compose points the dev app at Mailpit |
 
 `.env` is git-ignored; `.env.example` is the template. Never copy real values from `.env` into code, docs, or output.
 
