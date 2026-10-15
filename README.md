@@ -709,7 +709,7 @@ Default categories (shared, read-only) plus each user's own.
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| POST | `/api/purchases` | Create a purchase |
+| POST | `/api/purchases` | Create a purchase (`paymentMethod`: `card` with `creditCardId`, or `pix`/`cash` without card, one-time) |
 | GET | `/api/purchases` | List purchases |
 | PATCH | `/api/purchases/:id` | Update a purchase |
 | POST | `/api/purchases/:id/installments-paid` | Update paid installments |
@@ -760,7 +760,7 @@ Default categories (shared, read-only) plus each user's own.
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | GET | `/api/reports/by-tenant` | Generate financial report by tenant |
-| GET | `/api/reports/by-category` | Month's statement items per category (`year`, `month`) |
+| GET | `/api/reports/by-category` | Month's spending per category: statement items + Pix/cash purchases (`year`, `month`) |
 | GET | `/api/reports/global` | Generate global financial report |
 | GET | `/api/reports/installments-total` | Calculate future installment commitments |
 | GET | `/api/reports/tenants/:tenantId/monthly-pdf` | Generate monthly PDF report |

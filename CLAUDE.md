@@ -62,7 +62,7 @@ src/
 | `Tenant` (`tenants`) | `createdByUserId` | unique `(created_by_user_id, name)`; a financial grouping ("responsável"), not a multi-tenancy boundary |
 | `Category` (`categories`) | `createdByUserId` **nullable** | null owner = default category shared by all accounts (seeded by migration `1720000015000`, read-only); unique per owner on `lower(name)` (index `categories_owner_name_uq`, defaults share one bucket); `icon` = MDI class |
 | `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
-| `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields; `category_id` nullable, SET NULL |
+| `Purchase` (`purchases`) | `createdByUserId` | `payment_method` `card`\|`pix`\|`cash` (default `card`); card FK **RESTRICT**, nullable — set iff `card` (CHECK `purchases_card_matches_method_chk`); Pix/cash are never installments (CHECK); tenant FK **RESTRICT** (tenant required), installment fields; `category_id` nullable, SET NULL |
 | `Statement` (`statements`) | via card | unique `(credit_card_id, year, month)`; card FK CASCADE |
 | `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number`; `category_id` (SET NULL) follows the source's category |
 | `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL; `categoryid` nullable, SET NULL |
@@ -86,6 +86,10 @@ Change any of these only deliberately, and update tests/this file.
 - Deleting a category leaves purchases, subscriptions and statement items uncategorized (FK SET NULL).
 - Purchases/subscriptions may only reference a default or an own category (`assertUsable`, 403).
 - The category is not financial data: changing it on a purchase/subscription copies it to **all** its statement items (`StatementsService.syncItemsCategory`), locked/paid statements included.
+
+### Pix and cash purchases
+- `paymentMethod: "pix" | "cash"` purchases have `creditCardId = null`, are always one-time (`applyPaymentMethod`, 400 otherwise) and **never enter a statement**. Switching a card purchase to Pix/cash drops the card and rebuilds that card's open statements (still blocked if the purchase is in a locked/paid statement).
+- Reports add them **by purchase date** (`utils/direct-purchases.ts`): `by-tenant` (in `purchasesTotal`), `by-category`, and the tenant PDF (rows labeled "(Pix)"/"(Dinheiro)"; the PDF 404s only when the month has neither statements nor such purchases). `GET /purchases` lists them regardless of cards (`creditCardId IS NULL OR card.active`) and filters by `paymentMethod`. `GET /reports/global` and `installments-total` still only see card purchases.
 
 ### Purchases & installments (`purchases.service.ts`)
 - An installment purchase is **one row** (`totalAmount`, `installmentsTotal`, `installmentsPaid`).
@@ -117,7 +121,7 @@ Change any of these only deliberately, and update tests/this file.
   - `accumulatedAmount = income − fixed − (purchases + subscriptions)`.
 - `GET /reports/global`: with `statementId` → that statement's total; otherwise all-time sum of purchase totals + active subscriptions (semantics unchanged/undefined — confirm with the user before relying on it).
 - `GET /reports/installments-total`: remaining installment amount from the reference month on, by **calendar elapsed months** using the same `splitInstallments` as statements (not `installmentsPaid`).
-- `GET /reports/by-category?year&month`: the month's statement items of active cards summed per category, largest first, zero rows dropped: `[{ categoryId, name, icon, totalAmount }]` (`categoryId: null` = uncategorized). Adjustments have no category, so the sum can differ from the statement totals by the adjustments.
+- `GET /reports/by-category?year&month`: the month's statement items of active cards plus Pix/cash purchases dated in the month, summed per category, largest first, zero rows dropped: `[{ categoryId, name, icon, totalAmount }]` (`categoryId: null` = uncategorized). Adjustments have no category, so the sum can differ from the statement totals by the adjustments.
 - PDF `GET /reports/tenants/:tenantId/monthly-pdf?year&month`: same rules as by-tenant; 404 if the user has no statements that month. Filename header uses an ASCII fallback + RFC 5987 `filename*`.
 
 ### Money and dates
