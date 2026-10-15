@@ -1,8 +1,10 @@
 import {
+  IsDateString,
   IsEmail,
   IsNotEmpty,
   IsString,
   Length,
+  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
@@ -25,6 +27,18 @@ export class RegisterDto {
   @MinLength(8)
   @MaxLength(72)
   password!: string;
+
+  @ApiProperty({ example: "12345678909", description: "11 digits, check digits validated" })
+  @Matches(/^\d{11}$/, { message: "cpf must have 11 digits" })
+  cpf!: string;
+
+  @ApiProperty({ example: "11987654321", description: "10 or 11 digits with area code" })
+  @Matches(/^\d{10,11}$/, { message: "phone must have 10 or 11 digits" })
+  phone!: string;
+
+  @ApiProperty({ example: "1990-05-20" })
+  @IsDateString()
+  birthDate!: string;
 }
 
 export class LoginDto {
@@ -39,4 +53,44 @@ export class LoginDto {
   @IsNotEmpty()
   @MaxLength(72)
   password!: string;
+}
+
+const CODE = /^\d{6}$/;
+
+export class VerifyEmailDto {
+  @ApiProperty({ example: "john@example.com" })
+  @IsEmail()
+  @MaxLength(180)
+  email!: string;
+
+  @ApiProperty({ example: "123456" })
+  @Matches(CODE, { message: "code must have 6 digits" })
+  code!: string;
+}
+
+export class ResendVerificationDto {
+  @ApiProperty({ example: "john@example.com" })
+  @IsEmail()
+  @MaxLength(180)
+  email!: string;
+}
+
+export class VerifyLoginDto {
+  @ApiProperty({ description: "challengeToken returned by POST /auth/login" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  challengeToken!: string;
+
+  @ApiProperty({ example: "123456" })
+  @Matches(CODE, { message: "code must have 6 digits" })
+  code!: string;
+}
+
+export class ResendLoginCodeDto {
+  @ApiProperty({ description: "challengeToken returned by POST /auth/login" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  challengeToken!: string;
 }
