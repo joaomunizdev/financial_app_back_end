@@ -103,6 +103,11 @@ export class Purchase {
   @Column({ name: "installments_paid", type: "int", default: 0 })
   installmentsPaid!: number;
 
+  /** Key of the imported statement/invoice line this purchase came from. */
+  @ApiProperty({ nullable: true })
+  @Column({ name: "import_key", type: "varchar", length: 200, nullable: true })
+  importKey: string | null = null;
+
   @ApiProperty({ type: String, format: "date-time" })
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

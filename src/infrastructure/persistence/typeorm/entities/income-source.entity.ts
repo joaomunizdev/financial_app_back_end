@@ -52,6 +52,10 @@ export class IncomeSource {
   @Column('uuid', { name: 'createdbyuserid' })
   createdByUserId!: string;
 
+  /** Key of the imported statement line this income came from. */
+  @Column({ name: 'import_key', type: 'varchar', length: 200, nullable: true })
+  importKey?: string | null;
+
   @CreateDateColumn({ name: 'createdat', type: 'timestamptz' })
   createdAt!: Date;
 
