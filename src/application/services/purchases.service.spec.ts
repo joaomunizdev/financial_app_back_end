@@ -233,4 +233,44 @@ describe('PurchasesService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(txPurchases.save).not.toHaveBeenCalled();
   });
+
+  it('creates a Pix purchase without card, as one-time, without touching statements', async () => {
+    const { service, cards, statements, txPurchases } = setup();
+    const { creditCardId, ...rest } = input();
+    await service.create(
+      { ...rest, paymentMethod: 'pix', isInstallment: false, installmentsTotal: null },
+      USER,
+    );
+    expect(cards.findOne).not.toHaveBeenCalled();
+    expect(txPurchases.save).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentMethod: 'pix', creditCardId: null, isInstallment: false }),
+    );
+    expect(statements.rebuildOpenStatements).not.toHaveBeenCalled();
+  });
+
+  it('rejects Pix or cash installments', async () => {
+    const { service, txPurchases } = setup();
+    await expect(
+      service.create({ ...input(), paymentMethod: 'cash', creditCardId: null }, USER),
+    ).rejects.toThrow('Pix and cash purchases cannot be installments');
+    expect(txPurchases.save).not.toHaveBeenCalled();
+  });
+
+  it('requires a card for card purchases', async () => {
+    const { service } = setup();
+    await expect(
+      service.create({ ...input(), creditCardId: undefined }, USER),
+    ).rejects.toThrow('creditCardId is required for card purchases');
+  });
+
+  it('moving a card purchase to Pix drops the card and refreshes its open statements', async () => {
+    const { service, purchases, statements, txPurchases, manager } = setup();
+    purchases.findOne.mockResolvedValue(existing());
+    await service.update('p-1', { paymentMethod: 'pix', creditCardId: null }, USER);
+    expect(statements.assertPurchaseEditable).toHaveBeenCalled();
+    expect(txPurchases.save).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentMethod: 'pix', creditCardId: null }),
+    );
+    expect(statements.rebuildOpenStatements).toHaveBeenCalledWith(manager, ['card-1', null], USER);
+  });
 });

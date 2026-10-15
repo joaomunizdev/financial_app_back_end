@@ -108,10 +108,11 @@ export class StatementsService {
    */
   async rebuildOpenStatements(
     manager: EntityManager,
-    creditCardIds: string[],
+    // Null/undefined ids (Pix and cash purchases have no card) are ignored.
+    creditCardIds: (string | null | undefined)[],
     userId: string,
   ) {
-    const ids = [...new Set(creditCardIds.filter(Boolean))];
+    const ids = [...new Set(creditCardIds.filter((id): id is string => !!id))];
     if (!ids.length) return;
 
     const open = await manager.getRepository(Statement).find({

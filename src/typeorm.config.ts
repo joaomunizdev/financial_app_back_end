@@ -29,6 +29,7 @@ import { AddUserProfileAndAuthCodes1720000014000 } from './infrastructure/persis
 import { AuthCode } from './infrastructure/persistence/typeorm/entities/auth-code.entity';
 import { AddCategories1720000015000 } from './infrastructure/persistence/typeorm/migrations/1720000015000_add_categories';
 import { Category } from './infrastructure/persistence/typeorm/entities/category.entity';
+import { AddPaymentMethodToPurchases1720000016000 } from './infrastructure/persistence/typeorm/migrations/1720000016000_add_payment_method_to_purchases';
 
 // Shared by the Nest app (AppModule) and the TypeORM CLI / seed. `dotenv/config`
 // loads .env for CLI usage; it never overrides variables already set.
@@ -70,6 +71,7 @@ export const dataSourceOptions: DataSourceOptions = {
     AddCardTypeToCreditCards1720000013000,
     AddUserProfileAndAuthCodes1720000014000,
     AddCategories1720000015000,
+    AddPaymentMethodToPurchases1720000016000,
   ],
   synchronize: false,
 };
