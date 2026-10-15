@@ -23,6 +23,10 @@ import {
 import { toCents } from '../utils/money';
 import { monthPeriod } from '../utils/dates';
 import { activeInPeriodSql, incomeInPeriodSql } from '../utils/report-periods';
+import { directPurchasesInPeriod } from '../utils/direct-purchases';
+import { Purchase } from '../../infrastructure/persistence/typeorm/entities/purchase.entity';
+
+const DIRECT_METHOD_LABEL: Record<string, string> = { pix: 'Pix', cash: 'Dinheiro' };
 
 // Resolves to src/assets (ts-node) or dist/assets (build copies assets, see nest-cli.json)
 const LOGO_PATH = path.join(__dirname, '..', '..', 'assets', 'logo.png');
@@ -41,6 +45,8 @@ export class ReportsPdfService {
     private readonly fixedExpenses: Repository<FixedExpense>,
     @InjectRepository(IncomeSource)
     private readonly incomeSources: Repository<IncomeSource>,
+    @InjectRepository(Purchase)
+    private readonly purchases: Repository<Purchase>,
   ) {}
 
   private brl(n: number) {
@@ -84,12 +90,19 @@ export class ReportsPdfService {
       .select(['s.id AS id', 's.creditCardId AS "creditCardId"'])
       .getRawMany<{ id: string; creditCardId: string }>();
 
-    if (stmts.length === 0) {
+    const { periodStart, periodEnd } = monthPeriod(year, month);
+    // Pix/cash purchases of the tenant in the month (they have no statement).
+    const directRows = await directPurchasesInPeriod(this.purchases, userId, periodStart, periodEnd)
+      .andWhere('dp.tenantId = :tid', { tid: tenantId })
+      .orderBy('dp.purchaseDate', 'ASC')
+      .getMany();
+
+    if (stmts.length === 0 && directRows.length === 0) {
       throw new NotFoundException('No statements for this month');
     }
 
     const cardIds = [...new Set(stmts.map((s) => s.creditCardId))];
-    const cards = await this.cards.findBy({ id: In(cardIds) });
+    const cards = cardIds.length ? await this.cards.findBy({ id: In(cardIds) }) : [];
     const cardName = (id: string) =>
       cards.find((c) => c.id === id)?.nickname || id;
 
@@ -124,26 +137,31 @@ export class ReportsPdfService {
       amount: number;
       cardName: string;
     };
-    const reportRows: ReportRow[] = itemRows.map((r) => ({
-      label:
-        r.label?.trim() || (r.kind === 'purchase' ? 'Compra' : 'Assinatura'),
-      amount: Number(r.amount || 0),
-      cardName: cardName(r.creditCardId),
-    }));
+    const reportRows: ReportRow[] = [
+      ...itemRows.map((r) => ({
+        label:
+          r.label?.trim() || (r.kind === 'purchase' ? 'Compra' : 'Assinatura'),
+        amount: Number(r.amount || 0),
+        cardName: cardName(r.creditCardId),
+      })),
+      ...directRows.map((p) => ({
+        label: p.description.trim() || 'Compra',
+        amount: Number(p.totalAmount || 0),
+        cardName: DIRECT_METHOD_LABEL[p.paymentMethod] ?? p.paymentMethod,
+      })),
+    ];
 
     reportRows.sort((a, b) => a.label.localeCompare(b.label));
 
     const sumCents = (rows: { amount: string | null }[]) =>
       rows.reduce((sum, row) => sum + toCents(row.amount), 0);
-    const grandPurchasesCents = sumCents(
-      itemRows.filter((r) => r.kind === 'purchase'),
-    );
+    const grandPurchasesCents =
+      sumCents(itemRows.filter((r) => r.kind === 'purchase')) +
+      directRows.reduce((sum, p) => sum + toCents(p.totalAmount), 0);
     const grandSubsCents = sumCents(
       itemRows.filter((r) => r.kind === 'subscription'),
     );
     const grandTotalCents = grandPurchasesCents + grandSubsCents;
-
-    const { periodStart, periodEnd } = monthPeriod(year, month);
 
     const fixedExpenseRows = await this.fixedExpenses
       .createQueryBuilder('fixedExpense')

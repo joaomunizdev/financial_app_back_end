@@ -26,6 +26,7 @@ import {
 import { fromCents, splitInstallments, toCents } from '../utils/money';
 import { monthPeriod } from '../utils/dates';
 import { activeInPeriodSql, incomeInPeriodSql } from '../utils/report-periods';
+import { directPurchasesInPeriod } from '../utils/direct-purchases';
 
 @Injectable()
 export class ReportsService {
@@ -48,12 +49,18 @@ export class ReportsService {
   ) {}
 
   /**
-   * Statement items of the month summed per category (purchases and subscriptions
-   * of active cards), largest first. Uncategorized items come as categoryId null.
-   * Statement adjustments have no category and are not included.
+   * Spending of the month per category, largest first: statement items of active
+   * cards plus Pix/cash purchases dated in the month. Uncategorized amounts come
+   * as categoryId null. Statement adjustments have no category and are not included.
    */
   async totalsByCategory(userId: string, year: number, month: number) {
-    const rows = await this.items
+    type Row = {
+      categoryId: string | null;
+      name: string | null;
+      icon: string | null;
+      totalAmount: string;
+    };
+    const itemRows = await this.items
       .createQueryBuilder('si')
       .innerJoin('si.statement', 's')
       .innerJoin('s.creditCard', 'cc')
@@ -68,20 +75,28 @@ export class ReportsService {
       .groupBy('si.categoryId')
       .addGroupBy('c.name')
       .addGroupBy('c.icon')
-      .getRawMany<{
-        categoryId: string | null;
-        name: string | null;
-        icon: string | null;
-        totalAmount: string;
-      }>();
+      .getRawMany<Row>();
 
-    return rows
-      .map((r) => ({
-        categoryId: r.categoryId,
-        name: r.name,
-        icon: r.icon,
-        cents: toCents(r.totalAmount),
-      }))
+    const { periodStart, periodEnd } = monthPeriod(year, month);
+    const directRows = await directPurchasesInPeriod(this.purchases, userId, periodStart, periodEnd)
+      .leftJoin('dp.category', 'c')
+      .select('dp.categoryId', 'categoryId')
+      .addSelect('c.name', 'name')
+      .addSelect('c.icon', 'icon')
+      .addSelect('COALESCE(SUM(dp.totalAmount), 0)', 'totalAmount')
+      .groupBy('dp.categoryId')
+      .addGroupBy('c.name')
+      .addGroupBy('c.icon')
+      .getRawMany<Row>();
+
+    const merged = new Map<string, Omit<Row, 'totalAmount'> & { cents: number }>();
+    for (const r of [...itemRows, ...directRows]) {
+      const key = r.categoryId ?? '';
+      const cur = merged.get(key) ?? { categoryId: r.categoryId, name: r.name, icon: r.icon, cents: 0 };
+      cur.cents += toCents(r.totalAmount);
+      merged.set(key, cur);
+    }
+    return [...merged.values()]
       .filter((r) => r.cents !== 0)
       .sort((a, b) => b.cents - a.cents)
       .map(({ cents, ...r }) => ({ ...r, totalAmount: fromCents(cents) }));
@@ -120,6 +135,13 @@ export class ReportsService {
         totalAmount: string;
       }>();
 
+    // Pix/cash purchases of the month count as purchases of their tenant.
+    const directRows = await directPurchasesInPeriod(this.purchases, userId, periodStart, periodEnd)
+      .select('dp.tenantId', 'tenantId')
+      .addSelect('COALESCE(SUM(dp.totalAmount), 0)', 'totalAmount')
+      .groupBy('dp.tenantId')
+      .getRawMany<{ tenantId: string; totalAmount: string }>();
+
     const fixedExpenseRows = await this.fixedExpenses
       .createQueryBuilder('fixedExpense')
       .where('fixedExpense.createdByUserId = :uid', { uid: userId })
@@ -154,6 +176,9 @@ export class ReportsService {
     const centsBy = (rows: { tenantId: string; totalAmount: string }[]) =>
       new Map(rows.map((row) => [row.tenantId, toCents(row.totalAmount)]));
     const purchaseMap = centsBy(itemRows.filter((r) => r.kind === 'purchase'));
+    for (const [tenantId, cents] of centsBy(directRows)) {
+      purchaseMap.set(tenantId, (purchaseMap.get(tenantId) ?? 0) + cents);
+    }
     const subsMap = centsBy(itemRows.filter((r) => r.kind === 'subscription'));
     const fixedExpenseMap = centsBy(fixedExpenseRows);
     const incomeSourceMap = centsBy(incomeSourceRows);
