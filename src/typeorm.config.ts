@@ -44,6 +44,8 @@ export const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  // Hosted Postgres (Neon, Supabase, ...) requires TLS; local databases don't.
+  ssl: process.env.DB_SSL === 'true',
   entities: [
     User,
     Tenant,
