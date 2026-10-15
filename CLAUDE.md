@@ -60,11 +60,12 @@ src/
 | `User` (`users`) | — | email unique, stored lowercased; `cpf` (11 digits, unique when set), `phone`, `birth_date` (nullable for older accounts); `email_verified_at`; `two_factor_enabled` |
 | `AuthCode` (`auth_codes`) | via user | e-mail codes (`email_verification` \| `login`), SHA-256 hash, `expires_at`, `attempts`, `consumed_at`; user FK CASCADE |
 | `Tenant` (`tenants`) | `createdByUserId` | unique `(created_by_user_id, name)`; a financial grouping ("responsável"), not a multi-tenancy boundary |
+| `Category` (`categories`) | `createdByUserId` **nullable** | null owner = default category shared by all accounts (seeded by migration `1720000015000`, read-only); unique per owner on `lower(name)` (index `categories_owner_name_uq`, defaults share one bucket); `icon` = MDI class |
 | `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
-| `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields |
+| `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields; `category_id` nullable, SET NULL |
 | `Statement` (`statements`) | via card | unique `(credit_card_id, year, month)`; card FK CASCADE |
-| `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number` |
-| `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL |
+| `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number`; `category_id` (SET NULL) follows the source's category |
+| `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL; `categoryid` nullable, SET NULL |
 | `FixedExpense` (`fixed_expenses`) | `createdByUserId` | tenant nullable; optional `startDate`/`endDate` validity |
 | `IncomeSource` (`income_sources`) | `createdByUserId` | tenant nullable; `incomeType` `fixed`\|`one_time`; optional `startDate`/`endDate` |
 
@@ -79,11 +80,18 @@ Change any of these only deliberately, and update tests/this file.
 - `PATCH {cardType:'debit'}` on a credit card runs `CreditCardsService.convertInstallmentsToMonthly` in one transaction: each installment purchase becomes `installmentsTotal` one-time purchases with the original description (`addMonths`, `installmentAmountCents`), statement items are re-pointed by `installmentNumber` and relabeled `Compra à vista` (locked/paid statements keep their amounts; open ones are rebuilt), the original is deleted. Unmatched items abort the change (409). This deliberately bypasses `assertPurchaseEditable` because totals are preserved. Debit → credit converts nothing.
 - `DELETE /tenants/:id` → 409 if any purchase, subscription, fixed expense, income source or statement item references it.
 
+### Categories (`categories.service.ts`)
+- `GET /categories` returns defaults + the user's own as `{ id, name, icon, isDefault }`, by name.
+- Defaults can't be changed or deleted (403). Names are trimmed, 1–60 chars, unique per account ignoring case **including defaults** (409 `Category name already in use`).
+- Deleting a category leaves purchases, subscriptions and statement items uncategorized (FK SET NULL).
+- Purchases/subscriptions may only reference a default or an own category (`assertUsable`, 403).
+- The category is not financial data: changing it on a purchase/subscription copies it to **all** its statement items (`StatementsService.syncItemsCategory`), locked/paid statements included.
+
 ### Purchases & installments (`purchases.service.ts`)
 - An installment purchase is **one row** (`totalAmount`, `installmentsTotal`, `installmentsPaid`).
 - `totalAmount` > 0; card owned **and active**; tenant owned by the user (create and update).
 - `validateInstallments`: `isInstallment=false` ⇒ `installmentsTotal=null`, `installmentsPaid=0`; `isInstallment=true` ⇒ `installmentsTotal >= 1` and `0 <= installmentsPaid <= installmentsTotal`.
-- **A purchase with an item in a locked or paid statement cannot be updated or deleted** (409, `StatementsService.assertPurchaseEditable`).
+- **A purchase with an item in a locked or paid statement cannot be updated or deleted** (409, `StatementsService.assertPurchaseEditable`) — except an update that only changes `categoryId` (`changesBeyondCategory`; the frontend resends every field, so values are compared, not keys).
 - Create/update/delete run in a transaction and call `StatementsService.rebuildOpenStatements` for the affected card(s), so open statements always reflect current purchases.
 
 ### Statements (`statements.service.ts`)
@@ -94,7 +102,7 @@ Change any of these only deliberately, and update tests/this file.
   - one-time purchase → `Compra à vista` item if `purchaseDate` is in the month;
   - installment amounts from `splitInstallments` (cents): `per = round(total/n)`, **last absorbs the remainder**; label `Parcela k/n`, `installmentNumber = k`;
   - one `subscription` item per active subscription of the card (label = description truncated to 120, `tenantId` snapshot) — subscriptions are **snapshotted**, later changes don't alter closed statements;
-  - every item stores `tenantId` (purchase's or subscription's tenant);
+  - every item stores `tenantId` and `categoryId` (purchase's or subscription's);
   - `totalAmount = sum(items) + adjustmentAmount`.
 - `rebuildOpenStatements` keeps the existing adjustment (only explicit regeneration resets it). Subscription create/update/delete also triggers it.
 - `update`: adjustment (signed, credits negative) shifts `totalAmount` by the delta. Locked → dates/adjustment changes rejected (409). Paid → cannot be unlocked (409).

@@ -692,6 +692,17 @@ Authentication endpoints are rate-limited to 10 requests per minute per IP (120 
 | PATCH | `/api/tenants/:id` | Update a tenant |
 | DELETE | `/api/tenants/:id` | Delete a tenant |
 
+### Categories
+
+Default categories (shared, read-only) plus each user's own.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/categories` | List default and own categories (`isDefault` flag) |
+| POST | `/api/categories` | Create an own category (`name`, optional `icon`) |
+| PATCH | `/api/categories/:id` | Update an own category |
+| DELETE | `/api/categories/:id` | Delete an own category (records become uncategorized) |
+
 ### Purchases
 
 | Method | Endpoint | Description |
