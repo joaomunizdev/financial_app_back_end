@@ -3,14 +3,14 @@ import type { AuthCodePurpose } from '../persistence/typeorm/entities/auth-code.
 import type { MailAttachment } from './mail.service';
 
 // Resolves to src/assets (ts-node) or dist/assets (build copies assets, see nest-cli.json)
-const ASSETS = path.join(__dirname, '..', '..', 'assets', 'mail');
+export const MAIL_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets', 'mail');
 
 /** Embedded images (CID): render in Gmail/Outlook/Apple Mail without public hosting. */
 const ATTACHMENTS: MailAttachment[] = [
-  { filename: 'logo.png', path: path.join(ASSETS, 'logo-mark.png'), cid: 'logo@financial-app' },
+  { filename: 'logo.png', path: path.join(MAIL_ASSETS_DIR, 'logo-mark.png'), cid: 'logo@financial-app' },
   {
     filename: 'ilustracao.png',
-    path: path.join(ASSETS, 'code-illustration.png'),
+    path: path.join(MAIL_ASSETS_DIR, 'code-illustration.png'),
     cid: 'illustration@financial-app',
   },
 ];

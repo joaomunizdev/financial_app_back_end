@@ -19,9 +19,15 @@ export function validateEnv(config: Record<string, unknown>) {
   }
 
   // E-mail codes (sign-up confirmation, login second factor) must really be sent in production.
-  const hasMail = ['RESEND_API_KEY', 'SMTP_HOST'].some((k) => String(config[k] ?? '').trim());
-  if (config.NODE_ENV === 'production' && !hasMail) {
-    errors.push('RESEND_API_KEY or SMTP_HOST is required in production');
+  const filled = (k: string) => String(config[k] ?? '').trim() !== '';
+  if (config.NODE_ENV === 'production') {
+    if (!['RESEND_API_KEY', 'BREVO_API_KEY', 'SMTP_HOST'].some(filled)) {
+      errors.push('RESEND_API_KEY, BREVO_API_KEY or SMTP_HOST is required in production');
+    }
+    // Brevo e-mails load their images from this API's public URL.
+    if (filled('BREVO_API_KEY') && !filled('RESEND_API_KEY') && !filled('PUBLIC_URL') && !filled('RENDER_EXTERNAL_URL')) {
+      errors.push('PUBLIC_URL is required in production with BREVO_API_KEY');
+    }
   }
 
   for (const key of ['DB_PORT', 'PORT', 'SMTP_PORT', 'TRUST_PROXY']) {

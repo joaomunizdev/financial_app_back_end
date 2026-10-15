@@ -1,6 +1,6 @@
 # Render Blueprint (New > Blueprint): free web service built from the Dockerfile's
-# final stage (prod). Postgres lives on Neon and e-mail goes through Resend, see
-# README "Deploying (Render + Neon + Resend)". Variables with sync: false are
+# final stage (prod). Postgres lives on Neon and e-mail goes through Brevo, see
+# README "Deploying (Render + Neon + e-mail API)". Variables with sync: false are
 # asked for when the Blueprint is created.
 services:
   - type: web
@@ -31,7 +31,9 @@ services:
         generateValue: true
       - key: FRONTEND_ORIGIN
         sync: false
-      - key: RESEND_API_KEY
+      # E-mail through Brevo (no domain needed, verified sender). With a verified domain,
+      # RESEND_API_KEY (Resend) can be added instead; it takes precedence.
+      - key: BREVO_API_KEY
         sync: false
       - key: MAIL_FROM
         sync: false
