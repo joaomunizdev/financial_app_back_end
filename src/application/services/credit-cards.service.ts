@@ -21,6 +21,7 @@ import { StatementsService } from "./statements.service";
 import { fromCents, installmentAmountCents, toCents } from "../utils/money";
 import { addMonths } from "../utils/dates";
 
+import { PageRequest, paginate } from "../utils/pagination";
 @Injectable()
 export class CreditCardsService {
   constructor(
@@ -40,11 +41,23 @@ export class CreditCardsService {
     return this.cards.save(card);
   }
 
-  async list(userId: string) {
-    return this.cards.find({
-      where: { createdByUserId: userId, active: true },
-      order: { nickname: "ASC" },
-    });
+  async list(userId: string, page?: PageRequest) {
+    const qb = this.cards
+      .createQueryBuilder("card")
+      .where("card.createdByUserId = :userId", { userId })
+      .andWhere("card.active = true");
+    return paginate(
+      qb,
+      page,
+      {
+        nickname: "card.nickname",
+        brand: "card.brand",
+        cardType: "card.cardType",
+        last4: "card.last4",
+        limitAmount: "card.limitAmount",
+      },
+      [["card.nickname", "ASC"]]
+    );
   }
 
   async update(id: string, patch: Partial<CreditCard>, userId: string) {

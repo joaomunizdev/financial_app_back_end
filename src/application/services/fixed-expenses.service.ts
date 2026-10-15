@@ -19,6 +19,7 @@ function assertValidPeriod(e: FixedExpense) {
   }
 }
 
+import { PageRequest, paginate } from '../utils/pagination';
 @Injectable()
 export class FixedExpensesService {
   constructor(
@@ -48,12 +49,21 @@ export class FixedExpensesService {
     return this.fixedExpenses.save(fixedExpense);
   }
 
-  async list(userId: string) {
-    return this.fixedExpenses.find({
-      where: { createdByUserId: userId },
-      relations: { tenant: true },
-      order: { createdAt: 'DESC' },
-    });
+  async list(userId: string, page?: PageRequest) {
+    const qb = this.fixedExpenses
+      .createQueryBuilder('fe')
+      .leftJoinAndSelect('fe.tenant', 'tenant')
+      .where('fe.createdByUserId = :userId', { userId });
+    return paginate(
+      qb,
+      page,
+      {
+        description: 'fe.description',
+        amount: 'fe.amount',
+        tenantName: 'tenant.name',
+      },
+      [['fe.createdAt', 'DESC']],
+    );
   }
 
   async findOne(userId: string, id: string) {

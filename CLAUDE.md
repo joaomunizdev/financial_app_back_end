@@ -60,11 +60,14 @@ src/
 | `User` (`users`) | — | email unique, stored lowercased; `cpf` (11 digits, unique when set), `phone`, `birth_date` (nullable for older accounts); `email_verified_at`; `two_factor_enabled` |
 | `AuthCode` (`auth_codes`) | via user | e-mail codes (`email_verification` \| `login`), SHA-256 hash, `expires_at`, `attempts`, `consumed_at`; user FK CASCADE |
 | `Tenant` (`tenants`) | `createdByUserId` | unique `(created_by_user_id, name)`; a financial grouping ("responsável"), not a multi-tenancy boundary |
-| `CreditCard` (`credit_cards`) | `createdByUserId` | `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
-| `Purchase` (`purchases`) | `createdByUserId` | card FK **RESTRICT**, tenant FK **RESTRICT** (tenant required), installment fields |
+| `Category` (`categories`) | `createdByUserId` **nullable** | null owner = default category shared by all accounts (seeded by migration `1720000015000`, read-only); unique per owner on `lower(name)` (index `categories_owner_name_uq`, defaults share one bucket); `icon` = MDI class |
+| `CreditCard` (`credit_cards`) | `createdByUserId` | `brand` ∈ `CARD_BRANDS` (Visa, Mastercard, Elo, American Express, Hipercard, Diners Club, Discover, JCB, Cabal — official names; DTO `IsIn` + CHECK `credit_cards_brand_chk`; migration `1720000017000` normalizes known spellings and aborts listing unknown ones); `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
+| `Purchase` (`purchases`) | `createdByUserId` | `payment_method` `card`\|`pix`\|`cash` (default `card`); card FK **RESTRICT**, nullable — set iff `card` (CHECK `purchases_card_matches_method_chk`); Pix/cash are never installments (CHECK); tenant FK **RESTRICT** (tenant required), installment fields; `category_id` nullable, SET NULL |
+| `Investment` (`investments`) | `createdByUserId` | `name` ≤ 120, `type` ∈ `INVESTMENT_TYPES` (fixed_income, stocks, real_estate_funds, funds, crypto, pension, other; CHECK), `institution` nullable ≤ 80 |
+| `InvestmentMovement` (`investment_movements`) | via investment | `kind` contribution\|withdrawal\|balance, `amount` ≥ 0 (numeric), `date`; investment FK CASCADE |
 | `Statement` (`statements`) | via card | unique `(credit_card_id, year, month)`; card FK CASCADE |
-| `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number` |
-| `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL |
+| `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number`; `category_id` (SET NULL) follows the source's category |
+| `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL; `categoryid` nullable, SET NULL |
 | `FixedExpense` (`fixed_expenses`) | `createdByUserId` | tenant nullable; optional `startDate`/`endDate` validity |
 | `IncomeSource` (`income_sources`) | `createdByUserId` | tenant nullable; `incomeType` `fixed`\|`one_time`; optional `startDate`/`endDate` |
 
@@ -79,11 +82,28 @@ Change any of these only deliberately, and update tests/this file.
 - `PATCH {cardType:'debit'}` on a credit card runs `CreditCardsService.convertInstallmentsToMonthly` in one transaction: each installment purchase becomes `installmentsTotal` one-time purchases with the original description (`addMonths`, `installmentAmountCents`), statement items are re-pointed by `installmentNumber` and relabeled `Compra à vista` (locked/paid statements keep their amounts; open ones are rebuilt), the original is deleted. Unmatched items abort the change (409). This deliberately bypasses `assertPurchaseEditable` because totals are preserved. Debit → credit converts nothing.
 - `DELETE /tenants/:id` → 409 if any purchase, subscription, fixed expense, income source or statement item references it.
 
+### Categories (`categories.service.ts`)
+- `GET /categories` returns defaults + the user's own as `{ id, name, icon, isDefault }`, by name.
+- Defaults can't be changed or deleted (403). Names are trimmed, 1–60 chars, unique per account ignoring case **including defaults** (409 `Category name already in use`).
+- Deleting a category leaves purchases, subscriptions and statement items uncategorized (FK SET NULL).
+- Purchases/subscriptions may only reference a default or an own category (`assertUsable`, 403).
+- The category is not financial data: changing it on a purchase/subscription copies it to **all** its statement items (`StatementsService.syncItemsCategory`), locked/paid statements included.
+
+### Pix and cash purchases
+- `paymentMethod: "pix" | "cash"` purchases have `creditCardId = null`, are always one-time (`applyPaymentMethod`, 400 otherwise) and **never enter a statement**. Switching a card purchase to Pix/cash drops the card and rebuilds that card's open statements (still blocked if the purchase is in a locked/paid statement).
+- Reports add them **by purchase date** (`utils/direct-purchases.ts`): `by-tenant` (in `purchasesTotal`), `by-category`, and the tenant PDF (rows labeled "(Pix)"/"(Dinheiro)"; the PDF 404s only when the month has neither statements nor such purchases). `GET /purchases` lists them regardless of cards (`creditCardId IS NULL OR card.active`) and filters by `paymentMethod`. `GET /reports/global` and `installments-total` still only see card purchases.
+
+### Investments (`investments.service.ts`, `utils/investments.ts`)
+- Value of an investment on a date (`valueAtCents`): the last **balance** movement up to that day plus contributions minus withdrawals dated **after** it (movements on the balance's own day are inside it; same-day balances: latest created wins). Without balances: contributions − withdrawals.
+- Contributions/withdrawals need amount > 0, balances ≥ 0; a withdrawal can't exceed the value on its date (400).
+- `GET /investments` (paged/filterable: `search` on name/institution, `type`; sort name/type/institution) adds `currentValue` (today, `todayInReportTimeZone`), `investedTotal` (contributions − withdrawals) and `lastMovementDate`. Movements: `GET/POST /investments/:id/movements`, `DELETE /investments/:id/movements/:movementId`. Deleting an investment deletes its movements.
+- `GET /reports/investments?year&month` (dashboard): `totalValue` at the month's end, `contributions`/`withdrawals` dated in the month, `history` (value at the end of each of the last 6 months), `byType` (value per type at the month's end, fixed `INVESTMENT_TYPES` order, zero types omitted), `investmentsCount`.
+
 ### Purchases & installments (`purchases.service.ts`)
 - An installment purchase is **one row** (`totalAmount`, `installmentsTotal`, `installmentsPaid`).
 - `totalAmount` > 0; card owned **and active**; tenant owned by the user (create and update).
 - `validateInstallments`: `isInstallment=false` ⇒ `installmentsTotal=null`, `installmentsPaid=0`; `isInstallment=true` ⇒ `installmentsTotal >= 1` and `0 <= installmentsPaid <= installmentsTotal`.
-- **A purchase with an item in a locked or paid statement cannot be updated or deleted** (409, `StatementsService.assertPurchaseEditable`).
+- **A purchase with an item in a locked or paid statement cannot be updated or deleted** (409, `StatementsService.assertPurchaseEditable`) — except an update that only changes `categoryId` (`changesBeyondCategory`; the frontend resends every field, so values are compared, not keys).
 - Create/update/delete run in a transaction and call `StatementsService.rebuildOpenStatements` for the affected card(s), so open statements always reflect current purchases.
 
 ### Statements (`statements.service.ts`)
@@ -94,7 +114,7 @@ Change any of these only deliberately, and update tests/this file.
   - one-time purchase → `Compra à vista` item if `purchaseDate` is in the month;
   - installment amounts from `splitInstallments` (cents): `per = round(total/n)`, **last absorbs the remainder**; label `Parcela k/n`, `installmentNumber = k`;
   - one `subscription` item per active subscription of the card (label = description truncated to 120, `tenantId` snapshot) — subscriptions are **snapshotted**, later changes don't alter closed statements;
-  - every item stores `tenantId` (purchase's or subscription's tenant);
+  - every item stores `tenantId` and `categoryId` (purchase's or subscription's);
   - `totalAmount = sum(items) + adjustmentAmount`.
 - `rebuildOpenStatements` keeps the existing adjustment (only explicit regeneration resets it). Subscription create/update/delete also triggers it.
 - `update`: adjustment (signed, credits negative) shifts `totalAmount` by the delta. Locked → dates/adjustment changes rejected (409). Paid → cannot be unlocked (409).
@@ -109,6 +129,7 @@ Change any of these only deliberately, and update tests/this file.
   - `accumulatedAmount = income − fixed − (purchases + subscriptions)`.
 - `GET /reports/global`: with `statementId` → that statement's total; otherwise all-time sum of purchase totals + active subscriptions (semantics unchanged/undefined — confirm with the user before relying on it).
 - `GET /reports/installments-total`: remaining installment amount from the reference month on, by **calendar elapsed months** using the same `splitInstallments` as statements (not `installmentsPaid`).
+- `GET /reports/by-category?year&month`: the month's statement items of active cards plus Pix/cash purchases dated in the month, summed per category, largest first, zero rows dropped: `[{ categoryId, name, icon, totalAmount }]` (`categoryId: null` = uncategorized). Adjustments have no category, so the sum can differ from the statement totals by the adjustments.
 - PDF `GET /reports/tenants/:tenantId/monthly-pdf?year&month`: same rules as by-tenant; 404 if the user has no statements that month. Filename header uses an ASCII fallback + RFC 5987 `filename*`.
 
 ### Money and dates
@@ -158,7 +179,8 @@ Change any of these only deliberately, and update tests/this file.
 
 - Routes under `/api`; Swagger at `/api/docs` (non-production). Keep decorators accurate; `npm run docs:openapi` to export.
 - REST style: `POST` create, `GET` list, `GET :id`, `PATCH :id`, `DELETE :id`, actions as `POST :id/<action>`.
-- Don't change status codes or response shapes without being asked — the frontend (`financial_app_front_end`) depends on them. List endpoints are unpaginated arrays.
+- Don't change status codes or response shapes without being asked — the frontend (`financial_app_front_end`) depends on them.
+- **List paging is opt-in** (`PageQueryDto`, `application/utils/pagination.ts`): without `page` a list endpoint returns the full array (frontend selects, dashboard, PDF export rely on it); with `page` (1-based), `pageSize` (≤ 100, default 10), `sortBy`, `sortDir` it returns `{ items, total, page, pageSize }`. `paginate()` maps client sort keys to columns through a per-endpoint whitelist (unknown keys → default order; `id` always breaks ties) and uses offset/limit, so only to-one joins are allowed. Paged lists: credit-cards, tenants (`search`), categories (`scope=own|default`, `search`), purchases (+ `categoryId`, `search`), subscriptions (`search`, `creditCardId`, `categoryId`, `status=active|inactive`), fixed-expenses, income-sources, statements (card + year + month **without** `page` still returns the single statement or 404).
 - New user-scoped resources: `createdByUserId`, guarded controller, user filter on every query, ownership checks on referenced cards/tenants, respect `card.active`.
 
 ## 11. Testing Guidelines

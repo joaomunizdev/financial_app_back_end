@@ -7,6 +7,7 @@ import {
   Patch,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -21,6 +22,8 @@ import {
   UpdateIncomeSourceDto,
 } from '../dtos/income-source.dto';
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
+import { PageQueryDto } from '../dtos/pagination.dto';
+import { pageRequest } from '../../application/utils/pagination';
 
 @ApiTags('income-sources')
 @ApiBearerAuth('bearer')
@@ -39,8 +42,8 @@ export class IncomeSourcesController {
   @ApiOkResponse({
     description: 'List all income sources for the authenticated user.',
   })
-  list(@ReqUser() user: any) {
-    return this.service.list(user.userId);
+  list(@ReqUser() user: any, @Query() q: PageQueryDto) {
+    return this.service.list(user.userId, pageRequest(q));
   }
 
   @Get(':id')

@@ -13,6 +13,7 @@ import { ApiProperty } from "@nestjs/swagger";
 import { Statement } from "./statement.entity";
 import { Subscription } from "./subscription.entity";
 import { Tenant } from "./tenant.entity";
+import { Category } from "./category.entity";
 
 export type StatementItemKind = "purchase" | "subscription";
 
@@ -62,6 +63,18 @@ export class StatementItem {
   @ManyToOne(() => Tenant, { onDelete: "SET NULL", nullable: true })
   @JoinColumn({ name: "tenant_id" })
   tenant!: Tenant | null;
+
+  @ApiProperty({
+    format: "uuid",
+    nullable: true,
+    description: "Category of the purchase/subscription, kept in sync when it changes",
+  })
+  @Column({ name: "category_id", type: "uuid", nullable: true })
+  categoryId: string | null = null;
+
+  @ManyToOne(() => Category, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "category_id" })
+  category!: Category | null;
 
   @ApiProperty({ example: "Parcela 2/6" })
   @Column({ type: "varchar", length: 120 })

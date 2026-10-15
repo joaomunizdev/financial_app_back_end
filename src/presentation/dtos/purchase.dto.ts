@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsDateString,
   IsInt,
   IsOptional,
@@ -11,10 +12,26 @@ import {
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsMoney } from "./money.validator";
+import { PageQueryDto } from "./pagination.dto";
+import {
+  PAYMENT_METHODS,
+  PaymentMethod,
+} from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
 
 export class CreatePurchaseDto {
-  @ApiProperty({ format: "uuid" }) @IsUUID() creditCardId!: string;
+  @ApiPropertyOptional({ enum: PAYMENT_METHODS, default: "card" })
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: PaymentMethod;
+  @ApiPropertyOptional({ format: "uuid", description: "Required for card purchases; null for Pix/cash" })
+  @ValidateIf((o) => (o.paymentMethod ?? "card") === "card")
+  @IsUUID()
+  creditCardId?: string | null;
   @ApiProperty({ format: "uuid" }) @IsUUID() tenantId!: string;
+  @ApiPropertyOptional({ format: "uuid", nullable: true })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string | null;
   @ApiProperty({ example: "Groceries", maxLength: 255 })
   @IsString()
   @Length(1, 255)
@@ -36,14 +53,22 @@ export class CreatePurchaseDto {
   installmentsPaid?: number;
 }
 export class UpdatePurchaseDto {
-  @ApiPropertyOptional({ format: "uuid" })
+  @ApiPropertyOptional({ enum: PAYMENT_METHODS })
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: PaymentMethod;
+  @ApiPropertyOptional({ format: "uuid", nullable: true, description: "null for Pix/cash" })
   @IsOptional()
   @IsUUID()
-  creditCardId?: string;
+  creditCardId?: string | null;
   @ApiPropertyOptional({ format: "uuid" })
   @IsOptional()
   @IsUUID()
   tenantId?: string;
+  @ApiPropertyOptional({ format: "uuid", nullable: true, description: "null clears it" })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string | null;
   @ApiPropertyOptional({ example: "Groceries" })
   @IsOptional()
   @IsString()
@@ -80,11 +105,23 @@ export class SetInstallmentsPaidDto {
 export class PurchaseIdParamDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() id!: string;
 }
-export class ListPurchasesQueryDto {
+export class ListPurchasesQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ format: "uuid" })
   @IsOptional()
   @IsUUID()
   creditCardId?: string;
+  @ApiPropertyOptional({ format: "uuid" })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+  @ApiPropertyOptional({ enum: PAYMENT_METHODS })
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: PaymentMethod;
+  @ApiPropertyOptional({ example: "mercado", description: "Part of the description" })
+  @IsOptional()
+  @IsString()
+  search?: string;
   @ApiPropertyOptional({ format: "uuid" })
   @IsOptional()
   @IsUUID()

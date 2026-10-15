@@ -10,13 +10,38 @@ import {
 } from "@nestjs/common";
 import { DataSource, Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
+import {
+  PaymentMethod,
+  Purchase,
+} from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
 import {
   CreditCard,
   CreditCardType,
 } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
 import { StatementsService } from "./statements.service";
+import { CategoriesService } from "./categories.service";
+import { toCents } from "../utils/money";
+import { PageRequest, paginate } from "../utils/pagination";
+
+/**
+ * True when the update touches anything other than the category. Only those
+ * changes are blocked for purchases that belong to a locked or paid statement.
+ */
+export function changesBeyondCategory(before: Purchase, after: Partial<Purchase>) {
+  const day = (d?: string | null) => (d ? String(d).slice(0, 10) : null);
+  return (
+    (after.paymentMethod ?? "card") !== (before.paymentMethod ?? "card") ||
+    (after.creditCardId ?? null) !== (before.creditCardId ?? null) ||
+    after.tenantId !== before.tenantId ||
+    after.description !== before.description ||
+    day(after.purchaseDate) !== day(before.purchaseDate) ||
+    toCents(after.totalAmount) !== toCents(before.totalAmount) ||
+    !!after.isInstallment !== !!before.isInstallment ||
+    (after.installmentsTotal ?? null) !== (before.installmentsTotal ?? null) ||
+    Number(after.installmentsPaid ?? 0) !== Number(before.installmentsPaid ?? 0)
+  );
+}
 
 @Injectable()
 export class PurchasesService {
@@ -25,7 +50,8 @@ export class PurchasesService {
     @InjectRepository(CreditCard) private readonly cards: Repository<CreditCard>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     private readonly statements: StatementsService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly categories: CategoriesService
   ) {}
 
   private async assertTenantOwned(tenantId: string | undefined, userId: string) {
@@ -61,40 +87,87 @@ export class PurchasesService {
     }
   }
 
+  /**
+   * Card purchases need a card; Pix and cash purchases have none and are always
+   * one-time (they never enter a statement).
+   */
+  private applyPaymentMethod(p: Partial<Purchase>) {
+    const method: PaymentMethod = p.paymentMethod ?? "card";
+    p.paymentMethod = method;
+    if (method === "card") {
+      if (!p.creditCardId) {
+        throw new BadRequestException("creditCardId is required for card purchases");
+      }
+      return;
+    }
+    if (p.isInstallment) {
+      throw new BadRequestException("Pix and cash purchases cannot be installments");
+    }
+    p.creditCardId = null;
+  }
+
   async create(input: Partial<Purchase>, userId: string) {
     if (!input.totalAmount || Number(input.totalAmount) <= 0) {
       throw new BadRequestException("totalAmount must be > 0");
     }
-    const card = await this.cards.findOne({
-      where: { id: input.creditCardId, createdByUserId: userId, active: true },
-    });
-    if (!card) throw new ForbiddenException("Credit card not found or inactive");
-    this.assertInstallmentAllowed(card, input.isInstallment);
+    this.applyPaymentMethod(input);
+    if (input.creditCardId) {
+      const card = await this.cards.findOne({
+        where: { id: input.creditCardId, createdByUserId: userId, active: true },
+      });
+      if (!card) throw new ForbiddenException("Credit card not found or inactive");
+      this.assertInstallmentAllowed(card, input.isInstallment);
+    }
     await this.assertTenantOwned(input.tenantId, userId);
+    await this.categories.assertUsable(input.categoryId, userId);
     input.createdByUserId = userId;
     this.validateInstallments(input);
 
     return this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(Purchase);
       const p = await repo.save(repo.create(input));
-      await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+      if (p.creditCardId) {
+        await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+      }
       return p;
     });
   }
 
-  async list(params: {
-    userId: string;
-    creditCardId?: string;
-    tenantId?: string;
-    dateStart?: string;
-    dateEnd?: string;
-    isInstallment?: boolean;
-  }) {
+  async list(
+    params: {
+      userId: string;
+      creditCardId?: string;
+      tenantId?: string;
+      categoryId?: string;
+      paymentMethod?: PaymentMethod;
+      search?: string;
+      dateStart?: string;
+      dateEnd?: string;
+      isInstallment?: boolean;
+    },
+    page?: PageRequest
+  ) {
     const qb = this.purchases
       .createQueryBuilder("purchase")
-      .innerJoinAndSelect("purchase.creditCard", "card")
+      .leftJoinAndSelect("purchase.creditCard", "card")
+      .leftJoin("purchase.tenant", "tenant")
+      .leftJoin("purchase.category", "category")
       .where("purchase.createdByUserId = :userId", { userId: params.userId })
-      .andWhere("card.active = true");
+      // Pix/cash purchases have no card; card purchases only while the card is active.
+      .andWhere("(purchase.creditCardId IS NULL OR card.active = true)");
+
+    if (params.paymentMethod) {
+      qb.andWhere("purchase.paymentMethod = :paymentMethod", {
+        paymentMethod: params.paymentMethod,
+      });
+    }
+
+    if (params.categoryId) {
+      qb.andWhere("purchase.categoryId = :categoryId", { categoryId: params.categoryId });
+    }
+    if (params.search) {
+      qb.andWhere("purchase.description ILIKE :search", { search: `%${params.search}%` });
+    }
 
     if (params.creditCardId) {
       qb.andWhere("purchase.creditCardId = :creditCardId", {
@@ -116,10 +189,24 @@ export class PurchasesService {
       });
     }
 
-    return qb
-      .orderBy("purchase.purchaseDate", "DESC")
-      .addOrderBy("purchase.createdAt", "DESC")
-      .getMany();
+    return paginate(
+      qb,
+      page,
+      {
+        description: "purchase.description",
+        purchaseDate: "purchase.purchaseDate",
+        totalAmount: "purchase.totalAmount",
+        isInstallment: "purchase.isInstallment",
+        installments: "purchase.installmentsTotal",
+        card: ["purchase.paymentMethod", "card.nickname"],
+        tenant: "tenant.name",
+        category: "category.name",
+      },
+      [
+        ["purchase.purchaseDate", "DESC"],
+        ["purchase.createdAt", "DESC"],
+      ]
+    );
   }
 
   async update(id: string, patch: Partial<Purchase>, userId: string) {
@@ -134,21 +221,26 @@ export class PurchasesService {
       if (!targetCard) throw new ForbiddenException("Credit card not found or inactive");
     }
     await this.assertTenantOwned(patch.tenantId, userId);
+    await this.categories.assertUsable(patch.categoryId, userId);
 
     const merged: Partial<Purchase> = { ...p, ...patch };
     if (merged.totalAmount && Number(merged.totalAmount) <= 0) {
       throw new BadRequestException("totalAmount must be > 0");
     }
+    this.applyPaymentMethod(merged);
     if (merged.isInstallment !== undefined) {
       this.validateInstallments(merged);
     }
-    if (merged.isInstallment) {
+    if (merged.isInstallment && merged.creditCardId) {
       targetCard ??= await this.cards.findOne({ where: { id: merged.creditCardId } });
       if (targetCard) this.assertInstallmentAllowed(targetCard, true);
     }
 
     return this.dataSource.transaction(async (manager) => {
-      await this.statements.assertPurchaseEditable(manager, p.id);
+      // Re-categorizing alone is allowed even when the purchase is in a closed statement.
+      if (changesBeyondCategory(p, merged)) {
+        await this.statements.assertPurchaseEditable(manager, p.id);
+      }
       const previousCardId = p.creditCardId;
       Object.assign(p, merged);
       const saved = await manager.getRepository(Purchase).save(p);
@@ -156,6 +248,11 @@ export class PurchasesService {
         manager,
         [previousCardId, saved.creditCardId],
         userId
+      );
+      await this.statements.syncItemsCategory(
+        manager,
+        { purchaseId: saved.id },
+        saved.categoryId ?? null
       );
       return saved;
     });
@@ -169,11 +266,11 @@ export class PurchasesService {
     const p = await this.purchases.findOne({ where: { id } });
     if (!p) throw new NotFoundException();
     if (p.createdByUserId !== userId) throw new ForbiddenException();
-    const card = await this.cards.findOne({ where: { id: p.creditCardId, active: true } });
-    if (!card) throw new NotFoundException();
-    if (!p.isInstallment || p.installmentsTotal === null) {
+    if (!p.creditCardId || !p.isInstallment || p.installmentsTotal === null) {
       throw new BadRequestException("Purchase is not installment");
     }
+    const card = await this.cards.findOne({ where: { id: p.creditCardId, active: true } });
+    if (!card) throw new NotFoundException();
     if (installmentsPaid < 0 || installmentsPaid > p.installmentsTotal) {
       throw new BadRequestException("installmentsPaid out of bounds");
     }
@@ -189,7 +286,9 @@ export class PurchasesService {
     await this.dataSource.transaction(async (manager) => {
       await this.statements.assertPurchaseEditable(manager, p.id);
       await manager.getRepository(Purchase).delete(id);
-      await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+      if (p.creditCardId) {
+        await this.statements.rebuildOpenStatements(manager, [p.creditCardId], userId);
+      }
     });
   }
 }

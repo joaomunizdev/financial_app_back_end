@@ -22,6 +22,7 @@ import {
   toCents,
 } from '../utils/money';
 import { monthDiff } from '../utils/dates';
+import { PageRequest, paginate } from '../utils/pagination';
 
 // statement_items.label is varchar(120)
 const LABEL_MAX = 120;
@@ -107,10 +108,11 @@ export class StatementsService {
    */
   async rebuildOpenStatements(
     manager: EntityManager,
-    creditCardIds: string[],
+    // Null/undefined ids (Pix and cash purchases have no card) are ignored.
+    creditCardIds: (string | null | undefined)[],
     userId: string,
   ) {
-    const ids = [...new Set(creditCardIds.filter(Boolean))];
+    const ids = [...new Set(creditCardIds.filter((id): id is string => !!id))];
     if (!ids.length) return;
 
     const open = await manager.getRepository(Statement).find({
@@ -120,6 +122,18 @@ export class StatementsService {
     for (const st of open) {
       await this.rebuildItems(manager, st, userId);
     }
+  }
+
+  /**
+   * The category is not financial data: it is copied to the source's items in every
+   * statement, including locked and paid ones.
+   */
+  async syncItemsCategory(
+    manager: EntityManager,
+    source: { purchaseId: string } | { subscriptionId: string },
+    categoryId: string | null,
+  ) {
+    await manager.getRepository(StatementItem).update(source, { categoryId });
   }
 
   /** Purchases that appear in a locked or paid statement are frozen. */
@@ -175,6 +189,7 @@ export class StatementsService {
               kind: 'purchase',
               purchaseId: p.id,
               tenantId: p.tenantId,
+              categoryId: p.categoryId ?? null,
               label: 'Compra à vista',
               amount: p.totalAmount,
               installmentNumber: null,
@@ -199,6 +214,7 @@ export class StatementsService {
             kind: 'purchase',
             purchaseId: p.id,
             tenantId: p.tenantId,
+            categoryId: p.categoryId ?? null,
             label: `Parcela ${diff + 1}/${parts}`,
             amount: fromCents(amount),
             installmentNumber: diff + 1,
@@ -214,6 +230,7 @@ export class StatementsService {
           kind: 'subscription',
           subscriptionId: sub.id,
           tenantId: sub.tenantId ?? null,
+          categoryId: sub.categoryId ?? null,
           label: sub.description.slice(0, LABEL_MAX),
           amount: sub.amount,
           installmentNumber: null,
@@ -333,6 +350,7 @@ export class StatementsService {
   async list(
     userId: string,
     opts: { creditCardId?: string; year?: number; month?: number },
+    page?: PageRequest,
   ) {
     if (opts.creditCardId) {
       const card = await this.cards.findOne({
@@ -341,7 +359,8 @@ export class StatementsService {
       if (!card) throw new ForbiddenException();
     }
 
-    if (opts.creditCardId && opts.year && opts.month) {
+    // Card + period identifies one statement (kept as a single object or 404).
+    if (opts.creditCardId && opts.year && opts.month && !page) {
       const one = await this.statements.findOne({
         where: {
           creditCardId: opts.creditCardId,
@@ -374,10 +393,23 @@ export class StatementsService {
       qb.andWhere('statement.month = :month', { month: opts.month });
     }
 
-    return qb
-      .orderBy('statement.year', 'DESC')
-      .addOrderBy('statement.month', 'DESC')
-      .addOrderBy('creditCard.nickname', 'ASC')
-      .getMany();
+    return paginate(
+      qb,
+      page,
+      {
+        period: ['statement.year', 'statement.month'],
+        card: 'creditCard.nickname',
+        closingDate: 'statement.closingDate',
+        dueDate: 'statement.dueDate',
+        totalAmount: 'statement.totalAmount',
+        locked: 'statement.locked',
+        paid: 'statement.paidAt',
+      },
+      [
+        ['statement.year', 'DESC'],
+        ['statement.month', 'DESC'],
+        ['creditCard.nickname', 'ASC'],
+      ],
+    );
   }
 }

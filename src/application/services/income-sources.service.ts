@@ -23,6 +23,7 @@ function assertValidIncome(i: IncomeSource) {
   }
 }
 
+import { PageRequest, paginate } from '../utils/pagination';
 @Injectable()
 export class IncomeSourcesService {
   constructor(
@@ -56,12 +57,22 @@ export class IncomeSourcesService {
     return this.incomeSources.save(incomeSource);
   }
 
-  async list(userId: string) {
-    return this.incomeSources.find({
-      where: { createdByUserId: userId },
-      relations: { tenant: true },
-      order: { createdAt: 'DESC' },
-    });
+  async list(userId: string, page?: PageRequest) {
+    const qb = this.incomeSources
+      .createQueryBuilder('inc')
+      .leftJoinAndSelect('inc.tenant', 'tenant')
+      .where('inc.createdByUserId = :userId', { userId });
+    return paginate(
+      qb,
+      page,
+      {
+        description: 'inc.description',
+        amount: 'inc.amount',
+        incomeType: 'inc.incomeType',
+        tenantName: 'tenant.name',
+      },
+      [['inc.createdAt', 'DESC']],
+    );
   }
 
   async findOne(userId: string, id: string) {

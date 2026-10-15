@@ -41,6 +41,12 @@ import { UsersController } from './presentation/controllers/users.controller';
 import { UsersService } from './application/services/users.service';
 import { VerificationCodesService } from './application/services/verification-codes.service';
 import { MailService } from './infrastructure/mail/mail.service';
+import { Category } from './infrastructure/persistence/typeorm/entities/category.entity';
+import { CategoriesController } from './presentation/controllers/categories.controller';
+import { CategoriesService } from './application/services/categories.service';
+import { Investment, InvestmentMovement } from './infrastructure/persistence/typeorm/entities/investment.entity';
+import { InvestmentsController } from './presentation/controllers/investments.controller';
+import { InvestmentsService } from './application/services/investments.service';
 
 @Module({
   imports: [
@@ -63,6 +69,9 @@ import { MailService } from './infrastructure/mail/mail.service';
       FixedExpense,
       IncomeSource,
       AuthCode,
+      Category,
+      Investment,
+      InvestmentMovement,
     ]),
   ],
   controllers: [
@@ -78,6 +87,8 @@ import { MailService } from './infrastructure/mail/mail.service';
     IncomeSourcesController,
     HealthController,
     UsersController,
+    CategoriesController,
+    InvestmentsController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -94,6 +105,8 @@ import { MailService } from './infrastructure/mail/mail.service';
     UsersService,
     VerificationCodesService,
     MailService,
+    CategoriesService,
+    InvestmentsService,
   ],
 })
 export class AppModule {}

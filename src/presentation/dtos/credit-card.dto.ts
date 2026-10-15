@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Length,
@@ -9,17 +10,20 @@ import {
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsMoney } from "./money.validator";
-import { CreditCardType } from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
+import {
+  CARD_BRANDS,
+  CardBrand,
+  CreditCardType,
+} from "../../infrastructure/persistence/typeorm/entities/credit-card.entity";
 
 export class CreateCreditCardDto {
   @ApiProperty({ example: "Main Visa", maxLength: 80 })
   @IsString()
   @Length(1, 80)
   nickname!: string;
-  @ApiProperty({ example: "Visa", maxLength: 50 })
-  @IsString()
-  @Length(1, 50)
-  brand!: string;
+  @ApiProperty({ enum: CARD_BRANDS, example: "Visa" })
+  @IsIn(CARD_BRANDS)
+  brand!: CardBrand;
   @ApiProperty({ example: "1234", minLength: 4, maxLength: 4 })
   @IsString()
   @Matches(/^\d{4}$/, { message: "last4 must be 4 digits" })
@@ -39,11 +43,10 @@ export class UpdateCreditCardDto {
   @IsString()
   @Length(1, 80)
   nickname?: string;
-  @ApiPropertyOptional({ example: "Visa" })
+  @ApiPropertyOptional({ enum: CARD_BRANDS, example: "Visa" })
   @IsOptional()
-  @IsString()
-  @Length(1, 50)
-  brand?: string;
+  @IsIn(CARD_BRANDS)
+  brand?: CardBrand;
   @ApiPropertyOptional({ example: "1234" })
   @IsOptional()
   @IsString()

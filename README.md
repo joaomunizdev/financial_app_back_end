@@ -188,6 +188,8 @@ Example:
 }
 ```
 
+`brand` must be one of the real card brands: Visa, Mastercard, Elo, American Express, Hipercard, Diners Club, Discover, JCB or Cabal (any other value returns 400).
+
 `cardType` is `credit` (default) or `debit`. Debit cards only accept one-time purchases: an installment purchase on a debit card returns 400. Changing a credit card to debit (`PATCH {"cardType": "debit"}`) converts each of its installment purchases into one one-time purchase per installment, with the original description, dated in that installment's month (day clamped to the month's end). Amounts use the same installment split as statements, statement items are re-pointed to the new purchases (labeled `Compra à vista`, also in closed statements), and statement totals do not change.
 
 A card can be deactivated with `PATCH /api/credit-cards/:id` (`{"active": false}`); inactive cards and their data are hidden from every endpoint. Cards with purchases or statements cannot be deleted — deactivate them instead.
@@ -646,6 +648,8 @@ openapi/swagger.yaml
 
 ## Main API Endpoints
 
+List endpoints accept optional paging: `?page=1&pageSize=10&sortBy=<column>&sortDir=asc|desc` returns `{ items, total, page, pageSize }` (`pageSize` up to 100). Without `page` they return the full array.
+
 ### Health
 
 | Method | Endpoint | Description |
@@ -692,11 +696,37 @@ Authentication endpoints are rate-limited to 10 requests per minute per IP (120 
 | PATCH | `/api/tenants/:id` | Update a tenant |
 | DELETE | `/api/tenants/:id` | Delete a tenant |
 
+### Categories
+
+Default categories (shared, read-only) plus each user's own.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/categories` | List default and own categories (`isDefault` flag) |
+| POST | `/api/categories` | Create an own category (`name`, optional `icon`) |
+| PATCH | `/api/categories/:id` | Update an own category |
+| DELETE | `/api/categories/:id` | Delete an own category (records become uncategorized) |
+
+### Investments
+
+Investments (name, type, institution) and their movements: contributions, withdrawals and balance updates (the value reported on a date). The value on a date is the last balance update plus later contributions minus withdrawals.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/investments` | List investments with `currentValue` and `investedTotal` |
+| POST | `/api/investments` | Create an investment |
+| PATCH | `/api/investments/:id` | Update an investment |
+| DELETE | `/api/investments/:id` | Delete an investment and its movements |
+| GET | `/api/investments/:id/movements` | List movements (newest first) |
+| POST | `/api/investments/:id/movements` | Add a contribution, withdrawal or balance update |
+| DELETE | `/api/investments/:id/movements/:movementId` | Delete a movement |
+| GET | `/api/reports/investments` | Month summary: total value, contributions, 6-month history, value by type |
+
 ### Purchases
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| POST | `/api/purchases` | Create a purchase |
+| POST | `/api/purchases` | Create a purchase (`paymentMethod`: `card` with `creditCardId`, or `pix`/`cash` without card, one-time) |
 | GET | `/api/purchases` | List purchases |
 | PATCH | `/api/purchases/:id` | Update a purchase |
 | POST | `/api/purchases/:id/installments-paid` | Update paid installments |
@@ -747,6 +777,7 @@ Authentication endpoints are rate-limited to 10 requests per minute per IP (120 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | GET | `/api/reports/by-tenant` | Generate financial report by tenant |
+| GET | `/api/reports/by-category` | Month's spending per category: statement items + Pix/cash purchases (`year`, `month`) |
 | GET | `/api/reports/global` | Generate global financial report |
 | GET | `/api/reports/installments-total` | Calculate future installment commitments |
 | GET | `/api/reports/tenants/:tenantId/monthly-pdf` | Generate monthly PDF report |

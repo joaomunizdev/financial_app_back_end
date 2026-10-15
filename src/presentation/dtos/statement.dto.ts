@@ -9,6 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { IsMoney } from './money.validator';
+import { PageQueryDto } from './pagination.dto';
 
 export class CreateStatementDto {
   @ApiProperty({ format: 'uuid' }) @IsUUID() creditCardId!: string;
@@ -62,4 +63,23 @@ export class PayStatementDto {
   @IsOptional()
   @IsDateString()
   paidAt?: string;
+}
+
+export class ListStatementsQueryDto extends PageQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  creditCardId?: string;
+  @ApiPropertyOptional({ example: 2025 })
+  @IsOptional()
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year?: number;
+  @ApiPropertyOptional({ example: 8 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  month?: number;
 }

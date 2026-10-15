@@ -17,6 +17,8 @@ import {
 import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/credit-card.entity';
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { StatementsService } from './statements.service';
+import { CategoriesService } from './categories.service';
+import { PageRequest, paginate } from '../utils/pagination';
 
 @Injectable()
 export class SubscriptionsService {
@@ -28,6 +30,7 @@ export class SubscriptionsService {
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     private readonly statements: StatementsService,
     private readonly dataSource: DataSource,
+    private readonly categories: CategoriesService,
   ) {}
 
   // create:
@@ -45,6 +48,7 @@ export class SubscriptionsService {
     });
     if (!tenant)
       throw new ForbiddenException('Tenant not found or not owned by user');
+    await this.categories.assertUsable(dto.categoryId, userId);
 
     // Open statements snapshot active subscriptions, so keep them in sync.
     return this.dataSource.transaction(async (manager) => {
@@ -53,6 +57,7 @@ export class SubscriptionsService {
         repo.create({
           creditCardId: dto.creditCardId,
           tenantId: dto.tenantId,
+          categoryId: dto.categoryId ?? null,
           description: dto.description,
           amount: dto.amount,
           active: dto.active ?? true,
@@ -64,14 +69,48 @@ export class SubscriptionsService {
     });
   }
 
-  async list(userId: string) {
-    return this.subs
+  async list(
+    userId: string,
+    filters: {
+      search?: string;
+      creditCardId?: string;
+      categoryId?: string;
+      status?: 'active' | 'inactive';
+    } = {},
+    page?: PageRequest,
+  ) {
+    const qb = this.subs
       .createQueryBuilder('sub')
       .innerJoinAndSelect('sub.creditCard', 'card')
+      .leftJoin('sub.tenant', 'tenant')
+      .leftJoin('sub.category', 'category')
       .where('sub.createdByUserId = :userId', { userId })
-      .andWhere('card.active = true')
-      .orderBy('sub.createdAt', 'DESC')
-      .getMany();
+      .andWhere('card.active = true');
+    if (filters.search) {
+      qb.andWhere('sub.description ILIKE :search', { search: `%${filters.search}%` });
+    }
+    if (filters.creditCardId) {
+      qb.andWhere('sub.creditCardId = :creditCardId', { creditCardId: filters.creditCardId });
+    }
+    if (filters.categoryId) {
+      qb.andWhere('sub.categoryId = :categoryId', { categoryId: filters.categoryId });
+    }
+    if (filters.status) {
+      qb.andWhere('sub.active = :active', { active: filters.status === 'active' });
+    }
+    return paginate(
+      qb,
+      page,
+      {
+        description: 'sub.description',
+        amount: 'sub.amount',
+        active: 'sub.active',
+        card: 'card.nickname',
+        tenant: 'tenant.name',
+        category: 'category.name',
+      },
+      [['sub.createdAt', 'DESC']],
+    );
   }
 
   async findOne(userId: string, id: string) {
@@ -106,6 +145,7 @@ export class SubscriptionsService {
       if (!tenant)
         throw new ForbiddenException('Tenant not found or not owned by user');
     }
+    await this.categories.assertUsable(dto.categoryId, userId);
 
     return this.dataSource.transaction(async (manager) => {
       const previousCardId = sub.creditCardId;
@@ -115,6 +155,12 @@ export class SubscriptionsService {
         manager,
         [previousCardId, saved.creditCardId],
         userId,
+      );
+      // Closed statements keep their amounts but follow the category.
+      await this.statements.syncItemsCategory(
+        manager,
+        { subscriptionId: saved.id },
+        saved.categoryId ?? null,
       );
       return saved;
     });

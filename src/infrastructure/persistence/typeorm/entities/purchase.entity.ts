@@ -11,8 +11,13 @@ import {
 import { CreditCard } from "./credit-card.entity";
 import { Tenant } from "./tenant.entity";
 import { User } from "./user.entity";
+import { Category } from "./category.entity";
 import { DecimalAsStringTransformer } from "../transformers/decimal.transformer";
 import { ApiProperty } from "@nestjs/swagger";
+
+/** "card" purchases go to the card's statements; Pix and cash are one-time and card-less. */
+export type PaymentMethod = "card" | "pix" | "cash";
+export const PAYMENT_METHODS: PaymentMethod[] = ["card", "pix", "cash"];
 
 @Entity({ name: "purchases" })
 @Index("purchases_credit_card_idx", ["creditCardId"])
@@ -24,15 +29,20 @@ export class Purchase {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @ApiProperty({ format: "uuid" })
-  @Column({ name: "credit_card_id", type: "uuid" })
-  creditCardId!: string;
+  @ApiProperty({ enum: PAYMENT_METHODS, example: "card" })
+  @Column({ name: "payment_method", type: "varchar", length: 10, default: "card" })
+  paymentMethod!: PaymentMethod;
+
+  @ApiProperty({ format: "uuid", nullable: true, description: "Null for Pix and cash" })
+  @Column({ name: "credit_card_id", type: "uuid", nullable: true })
+  creditCardId!: string | null;
 
   @ManyToOne(() => CreditCard, (card) => card.purchases, {
     onDelete: "RESTRICT",
+    nullable: true,
   })
   @JoinColumn({ name: "credit_card_id" })
-  creditCard!: CreditCard;
+  creditCard!: CreditCard | null;
 
   @ApiProperty({ format: "uuid" })
   @Column({ name: "tenant_id", type: "uuid" })
@@ -51,6 +61,14 @@ export class Purchase {
   @ManyToOne(() => User, (user) => user.purchases, { onDelete: "CASCADE" })
   @JoinColumn({ name: "created_by_user_id" })
   createdByUser!: User;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  @Column({ name: "category_id", type: "uuid", nullable: true })
+  categoryId: string | null = null;
+
+  @ManyToOne(() => Category, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "category_id" })
+  category!: Category | null;
 
   @ApiProperty({ maxLength: 255 })
   @Column({ type: "varchar", length: 255 })
