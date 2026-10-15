@@ -26,9 +26,11 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...valid, DB_PORT: 'abc' })).toThrow('DB_PORT');
   });
 
-  it('requires SMTP_HOST only in production', () => {
-    expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow('SMTP_HOST');
+  it('requires a mail provider (Resend or SMTP) only in production', () => {
+    expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow('RESEND_API_KEY or SMTP_HOST');
+    expect(() => validateEnv({ ...valid, NODE_ENV: 'production', RESEND_API_KEY: ' ' })).toThrow('RESEND_API_KEY');
     expect(validateEnv({ ...valid, NODE_ENV: 'production', SMTP_HOST: 'smtp.example.com' })).toBeTruthy();
+    expect(validateEnv({ ...valid, NODE_ENV: 'production', RESEND_API_KEY: 're_123' })).toBeTruthy();
     expect(validateEnv({ ...valid, NODE_ENV: 'development' })).toBeTruthy();
   });
 });

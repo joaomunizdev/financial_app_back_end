@@ -1,11 +1,12 @@
 import * as path from 'path';
 import type { AuthCodePurpose } from '../persistence/typeorm/entities/auth-code.entity';
+import type { MailAttachment } from './mail.service';
 
 // Resolves to src/assets (ts-node) or dist/assets (build copies assets, see nest-cli.json)
 const ASSETS = path.join(__dirname, '..', '..', 'assets', 'mail');
 
 /** Embedded images (CID): render in Gmail/Outlook/Apple Mail without public hosting. */
-const ATTACHMENTS = [
+const ATTACHMENTS: MailAttachment[] = [
   { filename: 'logo.png', path: path.join(ASSETS, 'logo-mark.png'), cid: 'logo@financial-app' },
   {
     filename: 'ilustracao.png',
