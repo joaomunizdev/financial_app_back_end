@@ -21,8 +21,6 @@ import { StatementsService } from "./statements.service";
 import { fromCents, installmentAmountCents, toCents } from "../utils/money";
 import { addMonths } from "../utils/dates";
 
-const DESCRIPTION_MAX = 255;
-
 @Injectable()
 export class CreditCardsService {
   constructor(
@@ -72,11 +70,11 @@ export class CreditCardsService {
 
   /**
    * Debit cards don't take installments, so each installment purchase of the card
-   * becomes one one-time purchase per installment, dated in that installment's month
-   * and with the same amount statements already use (installmentAmountCents).
-   * Statement items are re-pointed to the new purchase of their installment, so
-   * locked/paid statements keep their amounts (and their "Parcela k/n" labels as
-   * history); open statements are rebuilt by the caller.
+   * becomes one one-time purchase per installment, with the original description,
+   * dated in that installment's month and with the same amount statements already
+   * use (installmentAmountCents). Statement items are re-pointed to the new purchase
+   * of their installment and relabeled like any one-time purchase, so locked/paid
+   * statements keep their amounts; open statements are rebuilt by the caller.
    */
   private async convertInstallmentsToMonthly(
     manager: EntityManager,
@@ -95,14 +93,12 @@ export class CreditCardsService {
       const parts = Math.max(1, p.installmentsTotal ?? 1);
       const totalCents = toCents(p.totalAmount);
       for (let k = 1; k <= parts; k++) {
-        const suffix = ` (${k}/${parts})`;
         const monthly = await purchaseRepo.save(
           purchaseRepo.create({
             creditCardId: p.creditCardId,
             tenantId: p.tenantId,
             createdByUserId: p.createdByUserId,
-            description:
-              p.description.trim().slice(0, DESCRIPTION_MAX - suffix.length) + suffix,
+            description: p.description,
             purchaseDate: addMonths(p.purchaseDate, k - 1),
             totalAmount: fromCents(installmentAmountCents(totalCents, parts, k)),
             isInstallment: false,
@@ -112,7 +108,7 @@ export class CreditCardsService {
         );
         await itemRepo.update(
           { purchaseId: p.id, installmentNumber: k },
-          { purchaseId: monthly.id, installmentNumber: null }
+          { purchaseId: monthly.id, installmentNumber: null, label: "Compra à vista" }
         );
       }
 

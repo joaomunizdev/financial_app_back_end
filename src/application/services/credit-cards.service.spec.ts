@@ -82,7 +82,7 @@ describe('CreditCardsService.update', () => {
     const created = txPurchases.save.mock.calls.map(([p]) => p);
     expect(created).toEqual([
       expect.objectContaining({
-        description: 'Bicicleta (1/3)',
+        description: 'Bicicleta',
         purchaseDate: '2026-01-31',
         totalAmount: '33.33',
         isInstallment: false,
@@ -91,14 +91,15 @@ describe('CreditCardsService.update', () => {
         tenantId: 'tenant-1',
         creditCardId: 'card-1',
       }),
-      expect.objectContaining({ description: 'Bicicleta (2/3)', purchaseDate: '2026-02-28', totalAmount: '33.33' }),
-      expect.objectContaining({ description: 'Bicicleta (3/3)', purchaseDate: '2026-03-31', totalAmount: '33.34' }),
+      expect.objectContaining({ description: 'Bicicleta', purchaseDate: '2026-02-28', totalAmount: '33.33' }),
+      expect.objectContaining({ description: 'Bicicleta', purchaseDate: '2026-03-31', totalAmount: '33.34' }),
     ]);
-    // Existing statement items follow their installment to the new purchase.
+    // Existing statement items (also in closed statements) follow their installment
+    // to the new purchase and read like any one-time purchase.
     expect(txItems.update).toHaveBeenNthCalledWith(
       2,
       { purchaseId: 'p-1', installmentNumber: 2 },
-      { purchaseId: 'new-2', installmentNumber: null },
+      { purchaseId: 'new-2', installmentNumber: null, label: 'Compra à vista' },
     );
     expect(txPurchases.delete).toHaveBeenCalledWith('p-1');
     expect(statementsService.rebuildOpenStatements).toHaveBeenCalledWith(manager, ['card-1'], USER);
