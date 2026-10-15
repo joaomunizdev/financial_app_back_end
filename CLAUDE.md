@@ -63,6 +63,8 @@ src/
 | `Category` (`categories`) | `createdByUserId` **nullable** | null owner = default category shared by all accounts (seeded by migration `1720000015000`, read-only); unique per owner on `lower(name)` (index `categories_owner_name_uq`, defaults share one bucket); `icon` = MDI class |
 | `CreditCard` (`credit_cards`) | `createdByUserId` | `brand` ∈ `CARD_BRANDS` (Visa, Mastercard, Elo, American Express, Hipercard, Diners Club, Discover, JCB, Cabal — official names; DTO `IsIn` + CHECK `credit_cards_brand_chk`; migration `1720000017000` normalizes known spellings and aborts listing unknown ones); `active` flag (soft-hide, settable via PATCH); `limitAmount` numeric; `cardType` enum `credit_card_type` (`credit` default \| `debit`) |
 | `Purchase` (`purchases`) | `createdByUserId` | `payment_method` `card`\|`pix`\|`cash` (default `card`); card FK **RESTRICT**, nullable — set iff `card` (CHECK `purchases_card_matches_method_chk`); Pix/cash are never installments (CHECK); tenant FK **RESTRICT** (tenant required), installment fields; `category_id` nullable, SET NULL |
+| `Investment` (`investments`) | `createdByUserId` | `name` ≤ 120, `type` ∈ `INVESTMENT_TYPES` (fixed_income, stocks, real_estate_funds, funds, crypto, pension, other; CHECK), `institution` nullable ≤ 80 |
+| `InvestmentMovement` (`investment_movements`) | via investment | `kind` contribution\|withdrawal\|balance, `amount` ≥ 0 (numeric), `date`; investment FK CASCADE |
 | `Statement` (`statements`) | via card | unique `(credit_card_id, year, month)`; card FK CASCADE |
 | `StatementItem` (`statement_items`) | via statement | `kind` `purchase`\|`subscription`; `purchase_id` (CASCADE, required for purchase items), `subscription_id` (SET NULL), `tenant_id` snapshot (SET NULL), `installment_number`; `category_id` (SET NULL) follows the source's category |
 | `Subscription` (`subscriptions`) | `createdByUserId` | card FK CASCADE; tenant nullable, SET NULL; `categoryid` nullable, SET NULL |
@@ -90,6 +92,12 @@ Change any of these only deliberately, and update tests/this file.
 ### Pix and cash purchases
 - `paymentMethod: "pix" | "cash"` purchases have `creditCardId = null`, are always one-time (`applyPaymentMethod`, 400 otherwise) and **never enter a statement**. Switching a card purchase to Pix/cash drops the card and rebuilds that card's open statements (still blocked if the purchase is in a locked/paid statement).
 - Reports add them **by purchase date** (`utils/direct-purchases.ts`): `by-tenant` (in `purchasesTotal`), `by-category`, and the tenant PDF (rows labeled "(Pix)"/"(Dinheiro)"; the PDF 404s only when the month has neither statements nor such purchases). `GET /purchases` lists them regardless of cards (`creditCardId IS NULL OR card.active`) and filters by `paymentMethod`. `GET /reports/global` and `installments-total` still only see card purchases.
+
+### Investments (`investments.service.ts`, `utils/investments.ts`)
+- Value of an investment on a date (`valueAtCents`): the last **balance** movement up to that day plus contributions minus withdrawals dated **after** it (movements on the balance's own day are inside it; same-day balances: latest created wins). Without balances: contributions − withdrawals.
+- Contributions/withdrawals need amount > 0, balances ≥ 0; a withdrawal can't exceed the value on its date (400).
+- `GET /investments` (paged/filterable: `search` on name/institution, `type`; sort name/type/institution) adds `currentValue` (today, `todayInReportTimeZone`), `investedTotal` (contributions − withdrawals) and `lastMovementDate`. Movements: `GET/POST /investments/:id/movements`, `DELETE /investments/:id/movements/:movementId`. Deleting an investment deletes its movements.
+- `GET /reports/investments?year&month` (dashboard): `totalValue` at the month's end, `contributions`/`withdrawals` dated in the month, `history` (value at the end of each of the last 6 months), `byType` (value per type at the month's end, fixed `INVESTMENT_TYPES` order, zero types omitted), `investmentsCount`.
 
 ### Purchases & installments (`purchases.service.ts`)
 - An installment purchase is **one row** (`totalAmount`, `installmentsTotal`, `installmentsPaid`).

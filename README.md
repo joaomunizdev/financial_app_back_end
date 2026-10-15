@@ -707,6 +707,21 @@ Default categories (shared, read-only) plus each user's own.
 | PATCH | `/api/categories/:id` | Update an own category |
 | DELETE | `/api/categories/:id` | Delete an own category (records become uncategorized) |
 
+### Investments
+
+Investments (name, type, institution) and their movements: contributions, withdrawals and balance updates (the value reported on a date). The value on a date is the last balance update plus later contributions minus withdrawals.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/investments` | List investments with `currentValue` and `investedTotal` |
+| POST | `/api/investments` | Create an investment |
+| PATCH | `/api/investments/:id` | Update an investment |
+| DELETE | `/api/investments/:id` | Delete an investment and its movements |
+| GET | `/api/investments/:id/movements` | List movements (newest first) |
+| POST | `/api/investments/:id/movements` | Add a contribution, withdrawal or balance update |
+| DELETE | `/api/investments/:id/movements/:movementId` | Delete a movement |
+| GET | `/api/reports/investments` | Month summary: total value, contributions, 6-month history, value by type |
+
 ### Purchases
 
 | Method | Endpoint | Description |
