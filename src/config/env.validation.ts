@@ -18,7 +18,12 @@ export function validateEnv(config: Record<string, unknown>) {
     }
   }
 
-  for (const key of ['DB_PORT', 'PORT']) {
+  // E-mail codes (sign-up confirmation, login second factor) must really be sent in production.
+  if (config.NODE_ENV === 'production' && !String(config.SMTP_HOST ?? '').trim()) {
+    errors.push('SMTP_HOST is required in production');
+  }
+
+  for (const key of ['DB_PORT', 'PORT', 'SMTP_PORT']) {
     const value = config[key];
     if (value !== undefined && value !== '' && !/^\d+$/.test(String(value))) {
       errors.push(`${key} must be an integer`);

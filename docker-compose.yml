@@ -9,6 +9,9 @@ services:
       NODE_ENV: development
       CHOKIDAR_USEPOLLING: 'true'
       CHOKIDAR_INTERVAL: '300'
+      # Development e-mail goes to Mailpit (web UI on http://localhost:8025)
+      SMTP_HOST: mailpit
+      SMTP_PORT: '1025'
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
@@ -17,6 +20,15 @@ services:
       - '3000:3000'
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    depends_on:
+      - mailpit
+
+  # Captures every e-mail sent in development (sign-up and login codes).
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - '8025:8025'
+      - '1025:1025'
 
   # Postgres opcional para quem não tem um banco no host:
   #   docker compose --profile db up -d   (e use DB_HOST=db no .env)

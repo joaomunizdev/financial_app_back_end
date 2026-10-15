@@ -25,4 +25,10 @@ describe('validateEnv', () => {
   it('rejects a non-numeric port', () => {
     expect(() => validateEnv({ ...valid, DB_PORT: 'abc' })).toThrow('DB_PORT');
   });
+
+  it('requires SMTP_HOST only in production', () => {
+    expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow('SMTP_HOST');
+    expect(validateEnv({ ...valid, NODE_ENV: 'production', SMTP_HOST: 'smtp.example.com' })).toBeTruthy();
+    expect(validateEnv({ ...valid, NODE_ENV: 'development' })).toBeTruthy();
+  });
 });
