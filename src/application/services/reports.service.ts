@@ -47,6 +47,46 @@ export class ReportsService {
     private readonly incomeSources: Repository<IncomeSource>,
   ) {}
 
+  /**
+   * Statement items of the month summed per category (purchases and subscriptions
+   * of active cards), largest first. Uncategorized items come as categoryId null.
+   * Statement adjustments have no category and are not included.
+   */
+  async totalsByCategory(userId: string, year: number, month: number) {
+    const rows = await this.items
+      .createQueryBuilder('si')
+      .innerJoin('si.statement', 's')
+      .innerJoin('s.creditCard', 'cc')
+      .leftJoin('si.category', 'c')
+      .where('s.year = :year AND s.month = :month', { year, month })
+      .andWhere('cc.createdByUserId = :uid', { uid: userId })
+      .andWhere('cc.active = true')
+      .select('si.categoryId', 'categoryId')
+      .addSelect('c.name', 'name')
+      .addSelect('c.icon', 'icon')
+      .addSelect('COALESCE(SUM(si.amount), 0)', 'totalAmount')
+      .groupBy('si.categoryId')
+      .addGroupBy('c.name')
+      .addGroupBy('c.icon')
+      .getRawMany<{
+        categoryId: string | null;
+        name: string | null;
+        icon: string | null;
+        totalAmount: string;
+      }>();
+
+    return rows
+      .map((r) => ({
+        categoryId: r.categoryId,
+        name: r.name,
+        icon: r.icon,
+        cents: toCents(r.totalAmount),
+      }))
+      .filter((r) => r.cents !== 0)
+      .sort((a, b) => b.cents - a.cents)
+      .map(({ cents, ...r }) => ({ ...r, totalAmount: fromCents(cents) }));
+  }
+
   async totalsByTenant(userId: string, year?: number, month?: number) {
     if (!year || !month) {
       return [];
