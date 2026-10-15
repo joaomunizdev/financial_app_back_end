@@ -188,6 +188,8 @@ Example:
 }
 ```
 
+`brand` must be one of the real card brands: Visa, Mastercard, Elo, American Express, Hipercard, Diners Club, Discover, JCB or Cabal (any other value returns 400).
+
 `cardType` is `credit` (default) or `debit`. Debit cards only accept one-time purchases: an installment purchase on a debit card returns 400. Changing a credit card to debit (`PATCH {"cardType": "debit"}`) converts each of its installment purchases into one one-time purchase per installment, with the original description, dated in that installment's month (day clamped to the month's end). Amounts use the same installment split as statements, statement items are re-pointed to the new purchases (labeled `Compra à vista`, also in closed statements), and statement totals do not change.
 
 A card can be deactivated with `PATCH /api/credit-cards/:id` (`{"active": false}`); inactive cards and their data are hidden from every endpoint. Cards with purchases or statements cannot be deleted — deactivate them instead.
