@@ -406,27 +406,26 @@ Generates a monthly financial report using PDFKit.
 
 Authentication is implemented using JWT and Passport.
 
-The basic flow is:
+Sign-up (name, e-mail, password, CPF, phone, birth date):
 
 ```text
-Register
-   ↓
-Password hashed with bcrypt
-   ↓
-User stored in PostgreSQL
+POST /auth/register  → account created unconfirmed, 6-digit code e-mailed
+POST /auth/verify-email {email, code} → e-mail confirmed → { accessToken }
 ```
 
 Login:
 
 ```text
-Email + Password
-      ↓
-bcrypt validation
-      ↓
-JWT generation
-      ↓
-Access Token
+POST /auth/login {email, password}
+  → { accessToken }                                  (no second factor)
+  → { twoFactorRequired, challengeToken } + code e-mailed  (two-factor enabled in the profile)
+  → { emailVerificationRequired, email } + code e-mailed   (account not confirmed yet)
+POST /auth/login/verify {challengeToken, code} → { accessToken }
 ```
+
+Fictitious/test e-mail domains (e.g. `teste.com`, `exemplo.com`, `example.com`, `*.test`) are refused at sign-up. Codes are 6 digits, stored only as SHA-256 hashes, valid for 10 minutes, accept 5 attempts and can be re-sent after 60 seconds. The `challengeToken` lasts 10 minutes and is rejected as an access token. Accounts created before e-mail confirmation existed were marked as confirmed by the migration.
+
+E-mail goes through any SMTP server (`SMTP_*` variables). In development `docker compose up` starts **Mailpit**, which captures every message: open `http://localhost:8025` to read the codes. Without `SMTP_HOST` (not allowed in production) the e-mail is written to the API log.
 
 Protected endpoints require:
 
@@ -657,8 +656,21 @@ openapi/swagger.yaml
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| POST | `/api/auth/register` | Register a user (password: 8–72 characters) |
-| POST | `/api/auth/login` | Authenticate a user |
+| POST | `/api/auth/register` | Register a user (password 8–72 chars, valid CPF, phone, birth date); e-mails a confirmation code |
+| POST | `/api/auth/verify-email` | Confirm the e-mail with the code and sign in |
+| POST | `/api/auth/resend-verification` | Re-send the confirmation code (same answer for unknown e-mails) |
+| POST | `/api/auth/login` | Password step (token, or the next code step) |
+| POST | `/api/auth/login/verify` | Second-factor code step |
+| POST | `/api/auth/login/resend` | Re-send the login code |
+
+### Users
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/users/me` | Signed-in user profile |
+| PATCH | `/api/users/me` | Update name, phone, birth date; CPF only if not set yet (it can't be changed) |
+| POST | `/api/users/me/password` | Change password (requires the current one) |
+| PATCH | `/api/users/me/two-factor` | Turn the login second factor on/off (requires the password) |
 
 Authentication endpoints are rate-limited to 10 requests per minute per IP (120 per minute for the rest of the API).
 

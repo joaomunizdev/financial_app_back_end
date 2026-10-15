@@ -36,6 +36,11 @@ import { IncomeSource } from './infrastructure/persistence/typeorm/entities/inco
 import { IncomeSourcesController } from './presentation/controllers/income-sources.controller';
 import { IncomeSourcesService } from './application/services/income-sources.service';
 import { HealthController } from './presentation/controllers/health.controller';
+import { AuthCode } from './infrastructure/persistence/typeorm/entities/auth-code.entity';
+import { UsersController } from './presentation/controllers/users.controller';
+import { UsersService } from './application/services/users.service';
+import { VerificationCodesService } from './application/services/verification-codes.service';
+import { MailService } from './infrastructure/mail/mail.service';
 
 @Module({
   imports: [
@@ -57,6 +62,7 @@ import { HealthController } from './presentation/controllers/health.controller';
       Subscription,
       FixedExpense,
       IncomeSource,
+      AuthCode,
     ]),
   ],
   controllers: [
@@ -71,6 +77,7 @@ import { HealthController } from './presentation/controllers/health.controller';
     FixedExpensesController,
     IncomeSourcesController,
     HealthController,
+    UsersController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -84,6 +91,9 @@ import { HealthController } from './presentation/controllers/health.controller';
     ReportsPdfService,
     FixedExpensesService,
     IncomeSourcesService,
+    UsersService,
+    VerificationCodesService,
+    MailService,
   ],
 })
 export class AppModule {}

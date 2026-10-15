@@ -25,6 +25,8 @@ import { AddSubscriptionItemsToStatements1720000010000 } from './infrastructure/
 import { AddMissingIndexes1720000011000 } from './infrastructure/persistence/typeorm/migrations/1720000011000_add_missing_indexes';
 import { AddValidityDatesToFixedExpensesAndIncome1720000012000 } from './infrastructure/persistence/typeorm/migrations/1720000012000_add_validity_dates_to_fixed_expenses_and_income';
 import { AddCardTypeToCreditCards1720000013000 } from './infrastructure/persistence/typeorm/migrations/1720000013000_add_card_type_to_credit_cards';
+import { AddUserProfileAndAuthCodes1720000014000 } from './infrastructure/persistence/typeorm/migrations/1720000014000_add_user_profile_and_auth_codes';
+import { AuthCode } from './infrastructure/persistence/typeorm/entities/auth-code.entity';
 
 // Shared by the Nest app (AppModule) and the TypeORM CLI / seed. `dotenv/config`
 // loads .env for CLI usage; it never overrides variables already set.
@@ -45,6 +47,7 @@ export const dataSourceOptions: DataSourceOptions = {
     Subscription,
     FixedExpense,
     IncomeSource,
+    AuthCode,
   ],
   migrations: [
     Init1700000000000,
@@ -62,6 +65,7 @@ export const dataSourceOptions: DataSourceOptions = {
     AddMissingIndexes1720000011000,
     AddValidityDatesToFixedExpensesAndIncome1720000012000,
     AddCardTypeToCreditCards1720000013000,
+    AddUserProfileAndAuthCodes1720000014000,
   ],
   synchronize: false,
 };

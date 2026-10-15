@@ -1,3 +1,5 @@
+import { isBlockedEmailDomain } from './email';
+import { isValidCpf, onlyDigits } from './cpf';
 import {
   fromCents,
   installmentAmountCents,
@@ -68,5 +70,30 @@ describe('dates', () => {
     expect(todayInReportTimeZone(new Date('2025-04-01T01:30:00Z'))).toBe(
       '2025-03-31',
     );
+  });
+});
+
+describe('cpf', () => {
+  it('validates check digits and ignores the mask', () => {
+    expect(isValidCpf('529.982.247-25')).toBe(true);
+    expect(isValidCpf('52998224725')).toBe(true);
+    expect(isValidCpf('52998224724')).toBe(false);
+    expect(isValidCpf('111.111.111-11')).toBe(false);
+    expect(isValidCpf('123')).toBe(false);
+    expect(onlyDigits('(11) 98765-4321')).toBe('11987654321');
+  });
+});
+
+describe('email domains', () => {
+  it('blocks fictitious/test domains and their subdomains', () => {
+    for (const e of ['a@teste.com', 'a@Exemplo.com.br', 'a@example.org', 'a@mail.teste.com', 'a@x.test', 'a@foo.invalid', 'a@test.com']) {
+      expect(isBlockedEmailDomain(e)).toBe(true);
+    }
+  });
+
+  it('accepts real-looking domains', () => {
+    for (const e of ['a@gmail.com', 'a@empresa.com.br', 'a@contestes.com', 'a@latest.com', 'a@outlook.com']) {
+      expect(isBlockedEmailDomain(e)).toBe(false);
+    }
   });
 });
