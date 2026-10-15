@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { TenantsService } from "../../application/services/tenants.service";
+import { pageRequest } from "../../application/utils/pagination";
 import { JwtAuthGuard, ReqUser } from "../security/jwt.guard";
 import {
   CreateTenantDto,
@@ -41,7 +42,7 @@ export class TenantsController {
   @Get()
   @ApiOkResponse({ description: "List tenants" })
   list(@ReqUser() user: any, @Query() q: ListTenantsQueryDto) {
-    return this.service.list(user.userId, q.search);
+    return this.service.list(user.userId, q.search, pageRequest(q));
   }
 
   @Patch(":id")

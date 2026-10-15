@@ -7,6 +7,7 @@ import {
   Patch,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -19,8 +20,10 @@ import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
 import { SubscriptionsService } from '../../application/services/subscriptions.service';
 import {
   CreateSubscriptionDto,
+  ListSubscriptionsQueryDto,
   UpdateSubscriptionDto,
 } from '../dtos/subscription.dto';
+import { pageRequest } from '../../application/utils/pagination';
 
 @ApiTags('subscriptions')
 @ApiBearerAuth('bearer')
@@ -39,8 +42,13 @@ export class SubscriptionsController {
   @ApiOkResponse({
     description: 'List all subscriptions for the authenticated user.',
   })
-  list(@ReqUser() u: any) {
-    return this.service.list(u.userId);
+  list(@ReqUser() u: any, @Query() q: ListSubscriptionsQueryDto) {
+    const { search, creditCardId, categoryId, status } = q;
+    return this.service.list(
+      u.userId,
+      { search, creditCardId, categoryId, status },
+      pageRequest(q),
+    );
   }
 
   @Get(':id')

@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { PurchasesService } from "../../application/services/purchases.service";
 import { JwtAuthGuard, ReqUser } from "../security/jwt.guard";
+import { pageRequest } from "../../application/utils/pagination";
 import {
   CreatePurchaseDto,
   ListPurchasesQueryDto,
@@ -58,7 +59,11 @@ export class PurchasesController {
   })
   @ApiQuery({ name: "isInstallment", required: false, type: Boolean })
   list(@ReqUser() user: any, @Query() q: ListPurchasesQueryDto) {
-    return this.service.list({ userId: user.userId, ...q });
+    const { page, pageSize, sortBy, sortDir, ...filters } = q;
+    return this.service.list(
+      { userId: user.userId, ...filters },
+      pageRequest({ page, pageSize, sortBy, sortDir })
+    );
   }
 
   @Patch(":id")

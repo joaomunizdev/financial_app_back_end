@@ -22,6 +22,7 @@ import {
   toCents,
 } from '../utils/money';
 import { monthDiff } from '../utils/dates';
+import { PageRequest, paginate } from '../utils/pagination';
 
 // statement_items.label is varchar(120)
 const LABEL_MAX = 120;
@@ -348,6 +349,7 @@ export class StatementsService {
   async list(
     userId: string,
     opts: { creditCardId?: string; year?: number; month?: number },
+    page?: PageRequest,
   ) {
     if (opts.creditCardId) {
       const card = await this.cards.findOne({
@@ -356,7 +358,8 @@ export class StatementsService {
       if (!card) throw new ForbiddenException();
     }
 
-    if (opts.creditCardId && opts.year && opts.month) {
+    // Card + period identifies one statement (kept as a single object or 404).
+    if (opts.creditCardId && opts.year && opts.month && !page) {
       const one = await this.statements.findOne({
         where: {
           creditCardId: opts.creditCardId,
@@ -389,10 +392,23 @@ export class StatementsService {
       qb.andWhere('statement.month = :month', { month: opts.month });
     }
 
-    return qb
-      .orderBy('statement.year', 'DESC')
-      .addOrderBy('statement.month', 'DESC')
-      .addOrderBy('creditCard.nickname', 'ASC')
-      .getMany();
+    return paginate(
+      qb,
+      page,
+      {
+        period: ['statement.year', 'statement.month'],
+        card: 'creditCard.nickname',
+        closingDate: 'statement.closingDate',
+        dueDate: 'statement.dueDate',
+        totalAmount: 'statement.totalAmount',
+        locked: 'statement.locked',
+        paid: 'statement.paidAt',
+      },
+      [
+        ['statement.year', 'DESC'],
+        ['statement.month', 'DESC'],
+        ['creditCard.nickname', 'ASC'],
+      ],
+    );
   }
 }

@@ -11,6 +11,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, Repository } from "typeorm";
 import { Category } from "../../infrastructure/persistence/typeorm/entities/category.entity";
+import { PageRequest, paginate } from "../utils/pagination";
 
 const DEFAULT_ICON = "mdi-tag-outline";
 
@@ -26,14 +27,24 @@ export class CategoriesService {
     @InjectRepository(Category) private readonly categories: Repository<Category>
   ) {}
 
-  /** Default categories plus the user's own, by name. */
-  async list(userId: string) {
-    const rows = await this.categories
-      .createQueryBuilder("c")
-      .where("c.createdByUserId IS NULL OR c.createdByUserId = :userId", { userId })
-      .orderBy("lower(c.name)", "ASC")
-      .getMany();
-    return rows.map(toView);
+  /**
+   * Default categories plus the user's own, by name. `scope` narrows to one of
+   * the two groups (the categories page shows them in separate tables).
+   */
+  async list(
+    userId: string,
+    filters: { scope?: "own" | "default"; search?: string } = {},
+    page?: PageRequest
+  ) {
+    const qb = this.categories.createQueryBuilder("c");
+    if (filters.scope === "own") qb.where("c.createdByUserId = :userId", { userId });
+    else if (filters.scope === "default") qb.where("c.createdByUserId IS NULL");
+    else qb.where("(c.createdByUserId IS NULL OR c.createdByUserId = :userId)", { userId });
+    if (filters.search) qb.andWhere("c.name ILIKE :search", { search: `%${filters.search}%` });
+    const result = await paginate(qb, page, { name: "c.name" }, [["c.name", "ASC"]]);
+    return Array.isArray(result)
+      ? result.map(toView)
+      : { ...result, items: result.items.map(toView) };
   }
 
   async create(userId: string, input: { name: string; icon?: string }) {

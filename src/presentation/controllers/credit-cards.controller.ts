@@ -6,10 +6,13 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { CreditCardsService } from "../../application/services/credit-cards.service";
 import { JwtAuthGuard, ReqUser } from "../security/jwt.guard";
+import { PageQueryDto } from "../dtos/pagination.dto";
+import { pageRequest } from "../../application/utils/pagination";
 import {
   CreateCreditCardDto,
   CreditCardIdParamDto,
@@ -38,8 +41,8 @@ export class CreditCardsController {
 
   @Get()
   @ApiOkResponse({ description: "List credit cards" })
-  list(@ReqUser() user: any) {
-    return this.service.list(user.userId);
+  list(@ReqUser() user: any, @Query() q: PageQueryDto) {
+    return this.service.list(user.userId, pageRequest(q));
   }
 
   @Patch(":id")

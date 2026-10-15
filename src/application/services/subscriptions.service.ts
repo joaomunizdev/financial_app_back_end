@@ -18,6 +18,7 @@ import { CreditCard } from '../../infrastructure/persistence/typeorm/entities/cr
 import { Tenant } from '../../infrastructure/persistence/typeorm/entities/tenant.entity';
 import { StatementsService } from './statements.service';
 import { CategoriesService } from './categories.service';
+import { PageRequest, paginate } from '../utils/pagination';
 
 @Injectable()
 export class SubscriptionsService {
@@ -68,14 +69,48 @@ export class SubscriptionsService {
     });
   }
 
-  async list(userId: string) {
-    return this.subs
+  async list(
+    userId: string,
+    filters: {
+      search?: string;
+      creditCardId?: string;
+      categoryId?: string;
+      status?: 'active' | 'inactive';
+    } = {},
+    page?: PageRequest,
+  ) {
+    const qb = this.subs
       .createQueryBuilder('sub')
       .innerJoinAndSelect('sub.creditCard', 'card')
+      .leftJoin('sub.tenant', 'tenant')
+      .leftJoin('sub.category', 'category')
       .where('sub.createdByUserId = :userId', { userId })
-      .andWhere('card.active = true')
-      .orderBy('sub.createdAt', 'DESC')
-      .getMany();
+      .andWhere('card.active = true');
+    if (filters.search) {
+      qb.andWhere('sub.description ILIKE :search', { search: `%${filters.search}%` });
+    }
+    if (filters.creditCardId) {
+      qb.andWhere('sub.creditCardId = :creditCardId', { creditCardId: filters.creditCardId });
+    }
+    if (filters.categoryId) {
+      qb.andWhere('sub.categoryId = :categoryId', { categoryId: filters.categoryId });
+    }
+    if (filters.status) {
+      qb.andWhere('sub.active = :active', { active: filters.status === 'active' });
+    }
+    return paginate(
+      qb,
+      page,
+      {
+        description: 'sub.description',
+        amount: 'sub.amount',
+        active: 'sub.active',
+        card: 'card.nickname',
+        tenant: 'tenant.name',
+        category: 'category.name',
+      },
+      [['sub.createdAt', 'DESC']],
+    );
   }
 
   async findOne(userId: string, id: string) {

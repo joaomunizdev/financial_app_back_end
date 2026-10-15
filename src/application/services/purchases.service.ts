@@ -19,6 +19,7 @@ import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant
 import { StatementsService } from "./statements.service";
 import { CategoriesService } from "./categories.service";
 import { toCents } from "../utils/money";
+import { PageRequest, paginate } from "../utils/pagination";
 
 /**
  * True when the update touches anything other than the category. Only those
@@ -104,19 +105,33 @@ export class PurchasesService {
     });
   }
 
-  async list(params: {
-    userId: string;
-    creditCardId?: string;
-    tenantId?: string;
-    dateStart?: string;
-    dateEnd?: string;
-    isInstallment?: boolean;
-  }) {
+  async list(
+    params: {
+      userId: string;
+      creditCardId?: string;
+      tenantId?: string;
+      categoryId?: string;
+      search?: string;
+      dateStart?: string;
+      dateEnd?: string;
+      isInstallment?: boolean;
+    },
+    page?: PageRequest
+  ) {
     const qb = this.purchases
       .createQueryBuilder("purchase")
       .innerJoinAndSelect("purchase.creditCard", "card")
+      .leftJoin("purchase.tenant", "tenant")
+      .leftJoin("purchase.category", "category")
       .where("purchase.createdByUserId = :userId", { userId: params.userId })
       .andWhere("card.active = true");
+
+    if (params.categoryId) {
+      qb.andWhere("purchase.categoryId = :categoryId", { categoryId: params.categoryId });
+    }
+    if (params.search) {
+      qb.andWhere("purchase.description ILIKE :search", { search: `%${params.search}%` });
+    }
 
     if (params.creditCardId) {
       qb.andWhere("purchase.creditCardId = :creditCardId", {
@@ -138,10 +153,24 @@ export class PurchasesService {
       });
     }
 
-    return qb
-      .orderBy("purchase.purchaseDate", "DESC")
-      .addOrderBy("purchase.createdAt", "DESC")
-      .getMany();
+    return paginate(
+      qb,
+      page,
+      {
+        description: "purchase.description",
+        purchaseDate: "purchase.purchaseDate",
+        totalAmount: "purchase.totalAmount",
+        isInstallment: "purchase.isInstallment",
+        installments: "purchase.installmentsTotal",
+        card: "card.nickname",
+        tenant: "tenant.name",
+        category: "category.name",
+      },
+      [
+        ["purchase.purchaseDate", "DESC"],
+        ["purchase.createdAt", "DESC"],
+      ]
+    );
   }
 
   async update(id: string, patch: Partial<Purchase>, userId: string) {

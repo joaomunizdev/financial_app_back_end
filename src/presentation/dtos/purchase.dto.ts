@@ -11,6 +11,7 @@ import {
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsMoney } from "./money.validator";
+import { PageQueryDto } from "./pagination.dto";
 
 export class CreatePurchaseDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() creditCardId!: string;
@@ -88,11 +89,19 @@ export class SetInstallmentsPaidDto {
 export class PurchaseIdParamDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() id!: string;
 }
-export class ListPurchasesQueryDto {
+export class ListPurchasesQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ format: "uuid" })
   @IsOptional()
   @IsUUID()
   creditCardId?: string;
+  @ApiPropertyOptional({ format: "uuid" })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+  @ApiPropertyOptional({ example: "mercado", description: "Part of the description" })
+  @IsOptional()
+  @IsString()
+  search?: string;
   @ApiPropertyOptional({ format: "uuid" })
   @IsOptional()
   @IsUUID()

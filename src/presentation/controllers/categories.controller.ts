@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -8,7 +8,13 @@ import {
 } from "@nestjs/swagger";
 import { CategoriesService } from "../../application/services/categories.service";
 import { JwtAuthGuard, ReqUser } from "../security/jwt.guard";
-import { CategoryIdParamDto, CreateCategoryDto, UpdateCategoryDto } from "../dtos/category.dto";
+import {
+  CategoryIdParamDto,
+  CreateCategoryDto,
+  ListCategoriesQueryDto,
+  UpdateCategoryDto,
+} from "../dtos/category.dto";
+import { pageRequest } from "../../application/utils/pagination";
 
 @ApiTags("categories")
 @ApiBearerAuth("bearer")
@@ -19,8 +25,8 @@ export class CategoriesController {
 
   @Get()
   @ApiOkResponse({ description: "Default categories plus the user's own ({ id, name, icon, isDefault })" })
-  list(@ReqUser() user: any) {
-    return this.service.list(user.userId);
+  list(@ReqUser() user: any, @Query() q: ListCategoriesQueryDto) {
+    return this.service.list(user.userId, { scope: q.scope, search: q.search }, pageRequest(q));
   }
 
   @Post()

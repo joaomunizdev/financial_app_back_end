@@ -8,7 +8,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
-import { Repository, ILike } from "typeorm";
+import { Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Tenant } from "../../infrastructure/persistence/typeorm/entities/tenant.entity";
 import { Purchase } from "../../infrastructure/persistence/typeorm/entities/purchase.entity";
@@ -16,6 +16,7 @@ import { Subscription } from "../../infrastructure/persistence/typeorm/entities/
 import { FixedExpense } from "../../infrastructure/persistence/typeorm/entities/fixed-expense.entity";
 import { IncomeSource } from "../../infrastructure/persistence/typeorm/entities/income-source.entity";
 import { StatementItem } from "../../infrastructure/persistence/typeorm/entities/statement-item.entity";
+import { PageRequest, paginate } from "../utils/pagination";
 
 @Injectable()
 export class TenantsService {
@@ -33,14 +34,12 @@ export class TenantsService {
     return this.tenants.save(tenant);
   }
 
-  async list(userId: string, search?: string) {
-    return this.tenants.find({
-      where: {
-        createdByUserId: userId,
-        ...(search ? { name: ILike(`%${search}%`) } : {}),
-      },
-      order: { name: "ASC" },
-    });
+  async list(userId: string, search?: string, page?: PageRequest) {
+    const qb = this.tenants
+      .createQueryBuilder("tenant")
+      .where("tenant.createdByUserId = :userId", { userId });
+    if (search) qb.andWhere("tenant.name ILIKE :search", { search: `%${search}%` });
+    return paginate(qb, page, { name: "tenant.name" }, [["tenant.name", "ASC"]]);
   }
 
   async update(id: string, name: string, userId: string) {

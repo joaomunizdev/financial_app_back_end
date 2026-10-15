@@ -13,13 +13,14 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
-  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
+import { pageRequest } from '../../application/utils/pagination';
 import { StatementsService } from '../../application/services/statements.service';
 import {
   CreateStatementDto,
+  ListStatementsQueryDto,
   PayStatementDto,
   UpdateStatementDto,
 } from '../dtos/statement.dto';
@@ -48,20 +49,11 @@ export class StatementsController {
   @Get()
   @ApiOkResponse({
     description:
-      'List statements. You can filter by creditCardId and/or by year and month.',
+      'List statements. You can filter by creditCardId and/or by year and month. Card + year + month without page returns that single statement (404 when missing).',
   })
-  @ApiQuery({ name: 'creditCardId', required: false, type: String })
-  @ApiQuery({ name: 'year', required: false, type: Number })
-  @ApiQuery({ name: 'month', required: false, type: Number })
-  list(
-    @ReqUser() user: any,
-    @Query('creditCardId') creditCardId?: string,
-    @Query('year') year?: string,
-    @Query('month') month?: string,
-  ) {
-    const y = year ? Number(year) : undefined;
-    const m = month ? Number(month) : undefined;
-    return this.service.list(user.userId, { creditCardId, year: y, month: m });
+  list(@ReqUser() user: any, @Query() q: ListStatementsQueryDto) {
+    const { creditCardId, year, month } = q;
+    return this.service.list(user.userId, { creditCardId, year, month }, pageRequest(q));
   }
 
   @Get(':id')

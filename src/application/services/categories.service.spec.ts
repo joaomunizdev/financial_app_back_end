@@ -5,6 +5,8 @@ const USER = 'user-1';
 
 function setup() {
   const qb = {
+    alias: 'c',
+    addOrderBy: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
