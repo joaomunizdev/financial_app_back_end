@@ -22,6 +22,13 @@ export class ReportsByTenantQueryDto {
   month!: number;
 }
 
+export class ReportsByCategoryQueryDto extends ReportsByTenantQueryDto {
+  @ApiPropertyOptional({ format: 'uuid', description: 'Only this tenant' })
+  @IsOptional()
+  @IsUUID()
+  tenantId?: string;
+}
+
 export class InstallmentsTotalQueryDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()

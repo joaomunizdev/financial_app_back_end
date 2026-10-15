@@ -5,6 +5,7 @@ import { InvestmentsService } from '../../application/services/investments.servi
 import { JwtAuthGuard, ReqUser } from '../security/jwt.guard';
 import {
   InstallmentsTotalQueryDto,
+  ReportsByCategoryQueryDto,
   ReportsByTenantQueryDto,
   ReportsQueryDto,
 } from '../dtos/reports-query.dto';
@@ -27,10 +28,10 @@ export class ReportsController {
   @Get('by-category')
   @ApiOkResponse({
     description:
-      'Statement items of the month per category, largest first: [{ categoryId, name, icon, totalAmount }] (categoryId null = uncategorized)',
+      'Statement items and Pix/cash purchases of the month per category, largest first: [{ categoryId, name, icon, totalAmount }] (categoryId null = uncategorized); optional tenantId',
   })
-  byCategory(@ReqUser() user: any, @Query() q: ReportsByTenantQueryDto) {
-    return this.service.totalsByCategory(user.userId, q.year, q.month);
+  byCategory(@ReqUser() user: any, @Query() q: ReportsByCategoryQueryDto) {
+    return this.service.totalsByCategory(user.userId, q.year, q.month, q.tenantId);
   }
 
   @Get('investments')
