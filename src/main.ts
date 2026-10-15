@@ -6,6 +6,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { QueryFailedFilter } from './presentation/filters/query-failed.filter';
+import { MAIL_ASSETS_DIR } from './infrastructure/mail/code-email';
+import { MAIL_ASSETS_ROUTE } from './infrastructure/mail/mail.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
@@ -15,6 +17,13 @@ async function bootstrap() {
 
   app.setGlobalPrefix('/api');
   app.use(helmet());
+  // E-mail images for providers without inline images (Brevo); loaded by mail clients from any origin.
+  app.useStaticAssets(MAIL_ASSETS_DIR, {
+    prefix: `${MAIL_ASSETS_ROUTE}/`,
+    index: false,
+    maxAge: '7d',
+    setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'),
+  });
 
   app.enableCors({
     origin: [process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173'],

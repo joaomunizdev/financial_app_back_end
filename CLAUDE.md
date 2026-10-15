@@ -165,7 +165,7 @@ Change any of these only deliberately, and update tests/this file.
 
 - `synchronize: false`. **Never enable it.** All schema changes go through migrations.
 - `migrationsRun` is on when `NODE_ENV=production`: the app applies pending migrations at boot (the prod image has no ts-node for the CLI). A failing migration stops the deploy, so test it on a DB copy first.
-- Deployment: `render.yaml` (Render free Docker web service, health check `/api/health`) + Neon Postgres (`DB_SSL=true`) + Resend; see README "Deploying".
+- Deployment: `render.yaml` (Render free Docker web service, health check `/api/health`) + Neon Postgres (`DB_SSL=true`) + Brevo (or Resend with a verified domain); see README "Deploying".
 - **Migrations are registered manually** in `typeorm.config.ts` (`migrations: [...]`). `npm run typeorm:gen` writes `migrations/auto-<ts>.ts` — rename to `<timestamp>_<snake_name>.ts` and register it.
 - Migrations are hand-written SQL with a `down`; newer ones idempotent where practical. Never edit an applied migration. Data backfills must keep existing financial totals unchanged (see `1720000010000_add_subscription_items_to_statements.ts`). Test new migrations on a restored copy of the DB (run → verify → revert → run) before the real one.
 - **Two column-naming styles**:
@@ -229,8 +229,8 @@ docker build --target prod -t financial-app .   # production image (non-root, he
 | `NODE_ENV` | Swagger, seed | `production` disables Swagger and the seed |
 | `DB_SSL` | `typeorm.config.ts` | `true` = TLS (hosted Postgres such as Neon) |
 | `TRUST_PROXY` | `main.ts` | number of proxies in front of the app; makes `req.ip` (throttling) the client IP; default 0 |
-| `RESEND_API_KEY`, `MAIL_FROM` | `MailService` | Resend HTTP API (wins over SMTP; needed where outbound SMTP is blocked, e.g. Render free); `MAIL_FROM` falls back to `SMTP_FROM` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `MailService` | optional in dev (logs instead); production requires `RESEND_API_KEY` or `SMTP_HOST`; compose points the dev app at Mailpit |
+| `RESEND_API_KEY`, `BREVO_API_KEY`, `MAIL_FROM`, `PUBLIC_URL` | `MailService` | HTTP APIs, precedence Resend > Brevo > SMTP (needed where outbound SMTP is blocked, e.g. Render free); `MAIL_FROM` falls back to `SMTP_FROM`; Brevo has no inline images, so its HTML points to `/api/mail-assets` (static `src/assets/mail`, `main.ts`) on `PUBLIC_URL` or `RENDER_EXTERNAL_URL` (required in production with Brevo) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `MailService` | optional in dev (logs instead); production requires `RESEND_API_KEY`, `BREVO_API_KEY` or `SMTP_HOST`; compose points the dev app at Mailpit |
 
 `.env` is git-ignored; `.env.example` is the template. Never copy real values from `.env` into code, docs, or output.
 
