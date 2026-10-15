@@ -477,10 +477,12 @@ Other variables (see `.env.example`):
 | --- | --- |
 | `DB_SSL` | `true` to connect over TLS (required by hosted Postgres such as Neon) |
 | `TRUST_PROXY` | Number of proxies in front of the API, so rate limiting sees the client IP (default `0`) |
-| `RESEND_API_KEY` | Sends e-mail through the Resend HTTP API (takes precedence over SMTP) |
+| `RESEND_API_KEY` | Sends e-mail through the Resend HTTP API (takes precedence over Brevo and SMTP) |
+| `BREVO_API_KEY` | Sends e-mail through the Brevo HTTP API (takes precedence over SMTP) |
+| `PUBLIC_URL` | Public URL of the API, for the images of Brevo e-mails (Render's `RENDER_EXTERNAL_URL` is used when unset) |
 | `MAIL_FROM` | Sender, e.g. `Financial App <no-reply@yourdomain.com>` (falls back to `SMTP_FROM`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Any SMTP server; locally Docker Compose uses Mailpit |
-| `NODE_ENV` | `production` disables Swagger and the seed, runs pending migrations at startup and requires `RESEND_API_KEY` or `SMTP_HOST` |
+| `NODE_ENV` | `production` disables Swagger and the seed, runs pending migrations at startup and requires `RESEND_API_KEY`, `BREVO_API_KEY` or `SMTP_HOST` |
 
 Generate a secure JWT secret:
 
@@ -634,13 +636,15 @@ Build the project:
 npm run build
 ```
 
-## Deploying (Render + Neon + Resend)
+## Deploying (Render + Neon + e-mail API)
 
-Free setup: the API on Render (Docker web service), Postgres on Neon and e-mail through Resend. Render's free plan blocks outbound SMTP ports, which is why e-mail goes through the Resend HTTP API there. The free service sleeps after ~15 minutes without traffic; the next request takes about a minute to wake it.
+Free setup: the API on Render (Docker web service), Postgres on Neon and e-mail through an HTTP API (Brevo, or Resend once you have a domain). Render's free plan blocks outbound SMTP ports, which is why e-mail goes through an API there. The free service sleeps after ~15 minutes without traffic; the next request takes about a minute to wake it.
 
 1. **Neon**: create a project (region close to Render's, e.g. AWS us-east-1 for Render's Virginia) and copy host, user, password and database from the connection details.
-2. **Resend**: add and verify your domain (DNS records), then create an API key. Without a verified domain Resend only delivers to the account owner's address.
-3. **Render**: New → Blueprint → this repository. `render.yaml` creates the service and asks for `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `FRONTEND_ORIGIN` (the Vercel domain), `RESEND_API_KEY` and `MAIL_FROM` (an address on the verified domain); `JWT_SECRET` is generated. Migrations run when the app starts.
+2. **E-mail**, one of:
+   - **Brevo** (no domain needed): verify a sender address (Senders), then create an API key (SMTP & API → API keys). Without an authenticated domain Brevo may rewrite the sender and messages are more likely to land in spam. The images are loaded from the API (`/api/mail-assets`, URL from `RENDER_EXTERNAL_URL`).
+   - **Resend** (better deliverability): add and verify your domain (DNS records), then create an API key. Without a verified domain Resend only delivers to the account owner's address. Set `RESEND_API_KEY` in Render; it takes precedence over Brevo.
+3. **Render**: New → Blueprint → this repository. `render.yaml` creates the service and asks for `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `FRONTEND_ORIGIN` (the Vercel domain), `BREVO_API_KEY` and `MAIL_FROM` (the verified sender, e.g. `Financial App <you@gmail.com>`); `JWT_SECRET` is generated. Migrations run when the app starts.
 4. Point the frontend's `VITE_API_URL` to `https://<service>.onrender.com/api` and check the health endpoint (`/api/health`) and a sign-up (the confirmation code must arrive).
 
 To move existing data, restore a dump of the local database (migrated to the same version as the code) on the empty Neon database **before the first deploy**; the dump carries the `migrations` table, so the app then finds nothing pending:
