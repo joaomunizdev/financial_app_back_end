@@ -32,6 +32,7 @@ import { Category } from './infrastructure/persistence/typeorm/entities/category
 import { AddPaymentMethodToPurchases1720000016000 } from './infrastructure/persistence/typeorm/migrations/1720000016000_add_payment_method_to_purchases';
 import { StandardizeCardBrands1720000017000 } from './infrastructure/persistence/typeorm/migrations/1720000017000_standardize_card_brands';
 import { AddInvestments1720000018000 } from './infrastructure/persistence/typeorm/migrations/1720000018000_add_investments';
+import { AddImportKeys1720000019000 } from './infrastructure/persistence/typeorm/migrations/1720000019000_add_import_keys';
 import { Investment, InvestmentMovement } from './infrastructure/persistence/typeorm/entities/investment.entity';
 
 // Shared by the Nest app (AppModule) and the TypeORM CLI / seed. `dotenv/config`
@@ -79,6 +80,7 @@ export const dataSourceOptions: DataSourceOptions = {
     AddPaymentMethodToPurchases1720000016000,
     StandardizeCardBrands1720000017000,
     AddInvestments1720000018000,
+    AddImportKeys1720000019000,
   ],
   synchronize: false,
 };

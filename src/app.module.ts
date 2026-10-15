@@ -47,6 +47,8 @@ import { CategoriesService } from './application/services/categories.service';
 import { Investment, InvestmentMovement } from './infrastructure/persistence/typeorm/entities/investment.entity';
 import { InvestmentsController } from './presentation/controllers/investments.controller';
 import { InvestmentsService } from './application/services/investments.service';
+import { ImportsController } from './presentation/controllers/imports.controller';
+import { ImportsService } from './application/services/imports.service';
 
 @Module({
   imports: [
@@ -89,6 +91,7 @@ import { InvestmentsService } from './application/services/investments.service';
     UsersController,
     CategoriesController,
     InvestmentsController,
+    ImportsController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -107,6 +110,7 @@ import { InvestmentsService } from './application/services/investments.service';
     MailService,
     CategoriesService,
     InvestmentsService,
+    ImportsService,
   ],
 })
 export class AppModule {}
