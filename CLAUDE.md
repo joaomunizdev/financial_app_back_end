@@ -155,7 +155,7 @@ Change any of these only deliberately, and update tests/this file.
 - E-mail: `MailService` (`infrastructure/mail`, nodemailer over `SMTP_*`). Without `SMTP_HOST` it logs the message (env validation requires `SMTP_HOST` in production).
 - Code e-mail template: `infrastructure/mail/code-email.ts` (table-based HTML with inline styles, frontend design tokens, plain-text alternative). Images (`assets/mail/logo-mark.png`, `code-illustration.png`) are **embedded as CID attachments**, so they render without public hosting; keep them PNG (WebP/SVG don't render in Outlook) and small.
 - Every non-auth controller has `@ApiBearerAuth('bearer')` + `@UseGuards(JwtAuthGuard)` at class level; `@ReqUser()` yields `{ userId, email }`. Keep this on new controllers (`HealthController` is the only intentionally public one besides auth).
-- Rate limiting: global 120 req/min per IP; `/auth/*` 10 req/min (`@Throttle`). `HealthController` uses `@SkipThrottle()`.
+- Rate limiting (`presentation/security/rate-limits.ts`, `RATE_LIMITS`), per client IP: throttlers `default` (120/min) and `hourly` (3000/h) on every route; `AuthController` 10/min + 30/h (`@Throttle(RATE_LIMITS.auth)`); routes that send e-mail (register, resend-verification, login/resend) 10/h (`RATE_LIMITS.sendsEmail`). The tracker reads `CLIENT_IP_HEADER` (Render: `cf-connecting-ip`, set by Cloudflare) and falls back to `req.ip`; IPv6 grouped by /64; logs the source once at the first request. `HealthController` uses `@SkipThrottle()`. New e-mail-sending routes need `RATE_LIMITS.sendsEmail`.
 - **Ownership pattern** (preserve and replicate): fetch → 404 if missing → 403 if `createdByUserId !== userId`; or query with `createdByUserId: userId` (+ `active: true` for cards) → 403 `'... not found or not owned by user'`. Statements: ownership via `statement.creditCard.createdByUserId`. Always ownership-check referenced cards and tenants.
 - JWT secret comes only from `ConfigService.getOrThrow('JWT_SECRET')` (`JwtModule.registerAsync` + `JwtStrategy`). No fallback secret — startup fails if missing (`config/env.validation.ts`).
 - `helmet()` is applied globally; Swagger is disabled when `NODE_ENV=production`.
@@ -228,7 +228,8 @@ docker build --target prod -t financial-app .   # production image (non-root, he
 | `FRONTEND_ORIGIN` | CORS | default `http://localhost:5173` |
 | `NODE_ENV` | Swagger, seed | `production` disables Swagger and the seed |
 | `DB_SSL` | `typeorm.config.ts` | `true` = TLS (hosted Postgres such as Neon) |
-| `TRUST_PROXY` | `main.ts` | number of proxies in front of the app; makes `req.ip` (throttling) the client IP; default 0 |
+| `TRUST_PROXY` | `main.ts` | number of proxies in front of the app; makes `req.ip` the client IP; default 0 |
+| `CLIENT_IP_HEADER` | `rate-limits.ts` | header with the visitor's IP for per-IP throttling (`cf-connecting-ip` on Render, set in `render.yaml`); empty = `req.ip` |
 | `RESEND_API_KEY`, `BREVO_API_KEY`, `MAIL_FROM`, `PUBLIC_URL` | `MailService` | HTTP APIs, precedence Resend > Brevo > SMTP (needed where outbound SMTP is blocked, e.g. Render free); `MAIL_FROM` falls back to `SMTP_FROM`; Brevo has no inline images, so its HTML points to `/api/mail-assets` (static `src/assets/mail`, `main.ts`) on `PUBLIC_URL` or `RENDER_EXTERNAL_URL` (required in production with Brevo) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `MailService` | optional in dev (logs instead); production requires `RESEND_API_KEY`, `BREVO_API_KEY` or `SMTP_HOST`; compose points the dev app at Mailpit |
 

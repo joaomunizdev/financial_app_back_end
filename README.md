@@ -477,6 +477,7 @@ Other variables (see `.env.example`):
 | --- | --- |
 | `DB_SSL` | `true` to connect over TLS (required by hosted Postgres such as Neon) |
 | `TRUST_PROXY` | Number of proxies in front of the API, so rate limiting sees the client IP (default `0`) |
+| `CLIENT_IP_HEADER` | Header with the visitor's IP set by the hosting edge, used by the per-IP rate limits (`cf-connecting-ip` on Render) |
 | `RESEND_API_KEY` | Sends e-mail through the Resend HTTP API (takes precedence over Brevo and SMTP) |
 | `BREVO_API_KEY` | Sends e-mail through the Brevo HTTP API (takes precedence over SMTP) |
 | `PUBLIC_URL` | Public URL of the API, for the images of Brevo e-mails (Render's `RENDER_EXTERNAL_URL` is used when unset) |
@@ -707,7 +708,7 @@ List endpoints accept optional paging: `?page=1&pageSize=10&sortBy=<column>&sort
 | POST | `/api/users/me/password` | Change password (requires the current one) |
 | PATCH | `/api/users/me/two-factor` | Turn the login second factor on/off (requires the password) |
 
-Authentication endpoints are rate-limited to 10 requests per minute per IP (120 per minute for the rest of the API).
+Rate limits are per client IP (from `CLIENT_IP_HEADER` behind a proxy, see `src/presentation/security/rate-limits.ts`): 120 requests per minute and 3,000 per hour overall; authentication endpoints 10 per minute and 30 per hour; endpoints that send an e-mail (sign-up, code resends) 10 per hour. Throttled requests get `429` with `Retry-After`.
 
 ### Credit Cards
 
