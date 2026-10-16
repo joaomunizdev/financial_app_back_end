@@ -1,0 +1,65 @@
+name: Database backup
+
+# Weekly encrypted dump of the production database (Neon), kept as a workflow
+# artifact. The repository is public, so the dump is encrypted (AES-256, gpg
+# symmetric) before it leaves the runner; only BACKUP_PASSPHRASE opens it.
+# Restore steps: README "Database backups".
+on:
+  schedule:
+    - cron: '0 6 * * 0' # Sundays 06:00 UTC (03:00 in Brasília)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Same major version as the Neon server (pg_dump must not be older than the server).
+      PG_IMAGE: postgres:18
+    steps:
+      - name: Check secrets
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "::error::Set the BACKUP_DATABASE_URL and BACKUP_PASSPHRASE repository secrets."
+            exit 1
+          fi
+
+      - name: Dump the database
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          umask 077
+          docker run --rm -e DATABASE_URL "$PG_IMAGE" \
+            sh -c 'pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL"' > cardsdb.dump
+          # A readable archive with the app's tables, or the job fails.
+          docker run --rm -i "$PG_IMAGE" pg_restore --list < cardsdb.dump > toc.txt
+          grep -q 'TABLE DATA public purchases' toc.txt
+          grep -q 'TABLE DATA public migrations' toc.txt
+          echo "Dump: $(stat -c %s cardsdb.dump) bytes, $(grep -c 'TABLE DATA' toc.txt) tables"
+
+      - name: Encrypt
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          umask 077
+          printf '%s' "$PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output "cardsdb-$(date -u +%F).dump.gpg" cardsdb.dump
+          shred -u cardsdb.dump toc.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardsdb-backup-${{ github.run_number }}
+          path: cardsdb-*.dump.gpg
+          if-no-files-found: error
+          retention-days: 90
