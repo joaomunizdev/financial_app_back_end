@@ -27,6 +27,10 @@ services:
         sync: false
       - key: DB_SSL
         value: "true"
+      # Per-IP rate limits: Render's Cloudflare edge sets the visitor's IP here
+      # (requests that try to forge it are rejected at the edge).
+      - key: CLIENT_IP_HEADER
+        value: cf-connecting-ip
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_ORIGIN
