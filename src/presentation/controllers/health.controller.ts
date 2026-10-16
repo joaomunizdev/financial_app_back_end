@@ -4,7 +4,8 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { DataSource } from 'typeorm';
 
 @ApiTags('health')
-@SkipThrottle()
+// Every named throttler must be skipped (a bare @SkipThrottle() only skips `default`).
+@SkipThrottle({ default: true, hourly: true })
 @Controller('health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}

@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthService } from '../../application/services/auth.service';
 import { AuthController } from '../controllers/auth.controller';
+import { HealthController } from '../controllers/health.controller';
+import { DataSource } from 'typeorm';
 import { clientIpTracker, throttlerOptions } from './rate-limits';
 
 const quietLogger = () => ({ log: jest.fn() }) as unknown as Logger;
@@ -32,13 +34,17 @@ describe('clientIpTracker', () => {
     expect(track({ headers: { 'cf-connecting-ip': '2001:db8:1:3::1' } })).not.toBe(a);
   });
 
-  it('logs the source once, without the address', () => {
+  it('logs each source the first time it is used, without the address', () => {
     const logger = quietLogger();
     const track = clientIpTracker('cf-connecting-ip', logger);
-    track({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.7' } });
     track({ ip: '10.0.0.1', headers: {} });
-    expect(logger.log).toHaveBeenCalledTimes(1);
-    expect(logger.log).toHaveBeenCalledWith('Client IP taken from cf-connecting-ip');
+    track({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.7' } });
+    track({ ip: '10.0.0.2', headers: {} });
+    track({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '198.51.100.2' } });
+    expect((logger.log as jest.Mock).mock.calls).toEqual([
+      ['Client IP taken from the connection (cf-connecting-ip missing)'],
+      ['Client IP taken from cf-connecting-ip'],
+    ]);
   });
 });
 
@@ -124,5 +130,27 @@ describe('auth rate limits (per client IP)', () => {
       });
     }
     expect((await login('203.0.113.7')).status).toBe(429);
+  });
+});
+
+describe('health check', () => {
+  it('is not rate limited by any throttler', async () => {
+    const tracker = jest.fn((req: { ip?: string }) => req.ip ?? '');
+    const moduleRef = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot({ ...throttlerOptions(undefined), getTracker: tracker })],
+      controllers: [HealthController],
+      providers: [
+        { provide: DataSource, useValue: { query: jest.fn().mockResolvedValue([]) } },
+        { provide: APP_GUARD, useClass: ThrottlerGuard },
+      ],
+    }).compile();
+    const app = moduleRef.createNestApplication({ logger: false });
+    await app.listen(0, '127.0.0.1');
+    try {
+      for (let i = 0; i < 130; i++) expect((await fetch(`${await app.getUrl()}/health`)).status).toBe(200);
+      expect(tracker).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 });

@@ -31,14 +31,15 @@ type TrackedRequest = { ip?: string; headers?: Record<string, string | string[] 
  */
 export function clientIpTracker(header: string | undefined, logger = new Logger('RateLimit')) {
   const name = header?.trim().toLowerCase() || undefined;
-  let announced = false;
+  const announced = new Set<boolean>();
   return (req: TrackedRequest): string => {
     const raw = name ? req.headers?.[name] : undefined;
     const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     const fromHeader = !!value && isIP(value) !== 0;
-    if (!announced) {
-      // Once per process, without the address itself: shows in the logs whether the header is arriving.
-      announced = true;
+    if (!announced.has(fromHeader)) {
+      // First time each source is used, without the address itself: shows in the logs whether the
+      // header is arriving (internal requests such as health checks don't carry it).
+      announced.add(fromHeader);
       logger.log(fromHeader ? `Client IP taken from ${name}` : `Client IP taken from the connection${name ? ` (${name} missing)` : ''}`);
     }
     return normalizeIp(fromHeader ? (value as string) : (req.ip ?? ''));
