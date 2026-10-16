@@ -10,15 +10,17 @@ import {
 } from "../dtos/auth.dto";
 import { ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
+import { RATE_LIMITS } from "../security/rate-limits";
 
 @ApiTags("auth")
-// Stricter limit than the global one to slow down credential stuffing/brute force
-@Throttle({ default: { limit: 10, ttl: 60_000 } })
+// Stricter per-IP limits than the global ones to slow down credential stuffing/brute force
+@Throttle(RATE_LIMITS.auth)
 @Controller("/auth")
 export class AuthController {
   constructor(private readonly service: AuthService) {}
 
   @Post("register")
+  @Throttle(RATE_LIMITS.sendsEmail)
   @ApiCreatedResponse({
     description: "User created; a confirmation code was e-mailed",
     schema: {
@@ -37,6 +39,7 @@ export class AuthController {
   }
 
   @Post("resend-verification")
+  @Throttle(RATE_LIMITS.sendsEmail)
   @HttpCode(200)
   @ApiOkResponse({ description: "Same answer whether or not the e-mail exists", schema: { example: { sent: true } } })
   resendVerification(@Body() dto: ResendVerificationDto) {
@@ -63,6 +66,7 @@ export class AuthController {
   }
 
   @Post("login/resend")
+  @Throttle(RATE_LIMITS.sendsEmail)
   @HttpCode(200)
   @ApiOkResponse({ schema: { example: { sent: true } } })
   resendLoginCode(@Body() dto: ResendLoginCodeDto) {

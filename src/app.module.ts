@@ -24,7 +24,8 @@ import { SubscriptionsController } from './presentation/controllers/subscription
 import { SubscriptionsService } from './application/services/subscriptions.service';
 import { ReportsPdfService } from './application/services/reports-pdf.service';
 import { ReportsPdfController } from './presentation/controllers/reports-pdf.controller';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { throttlerOptions } from './presentation/security/rate-limits';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { dataSourceOptions } from './typeorm.config';
@@ -59,7 +60,10 @@ import { ImportsService } from './application/services/imports.service';
       validate: validateEnv,
     }),
     TypeOrmModule.forRoot(dataSourceOptions),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => throttlerOptions(config.get<string>('CLIENT_IP_HEADER')),
+    }),
     TypeOrmModule.forFeature([
       User,
       Tenant,
