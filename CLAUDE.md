@@ -165,6 +165,7 @@ Change any of these only deliberately, and update tests/this file.
 
 - `synchronize: false`. **Never enable it.** All schema changes go through migrations.
 - `migrationsRun` is on when `NODE_ENV=production`: the app applies pending migrations at boot (the prod image has no ts-node for the CLI). A failing migration stops the deploy, so test it on a DB copy first.
+- Backups: `.github/workflows/db-backup.yml` (weekly + manual) dumps production with `postgres:18` (Neon's version), encrypts it with gpg AES-256 (`BACKUP_PASSPHRASE`) and uploads a 90-day artifact (the repo is public: never upload anything unencrypted); secrets `BACKUP_DATABASE_URL` (direct, non-pooler) and `BACKUP_PASSPHRASE`. Restore steps in README "Database backups".
 - Deployment: `render.yaml` (Render free Docker web service, health check `/api/health`) + Neon Postgres (`DB_SSL=true`) + Brevo (or Resend with a verified domain); see README "Deploying".
 - **Migrations are registered manually** in `typeorm.config.ts` (`migrations: [...]`). `npm run typeorm:gen` writes `migrations/auto-<ts>.ts` — rename to `<timestamp>_<snake_name>.ts` and register it.
 - Migrations are hand-written SQL with a `down`; newer ones idempotent where practical. Never edit an applied migration. Data backfills must keep existing financial totals unchanged (see `1720000010000_add_subscription_items_to_statements.ts`). Test new migrations on a restored copy of the DB (run → verify → revert → run) before the real one.

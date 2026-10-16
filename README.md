@@ -655,6 +655,27 @@ pg_dump -Fc -h localhost -U postgres cardsdb > cardsdb.dump
 pg_restore --no-owner --no-acl -d "postgresql://USER:PASSWORD@HOST/DB?sslmode=require" cardsdb.dump
 ```
 
+## Database backups
+
+`.github/workflows/db-backup.yml` dumps the production database every Sunday (06:00 UTC, or on demand from the Actions tab → "Database backup" → Run workflow), encrypts the dump with AES-256 (`gpg --symmetric`) and keeps it as a workflow artifact for 90 days. The repository is public, so only the encrypted file leaves the runner; without the passphrase it cannot be opened. The job fails if the dump is not a readable archive with the app's tables.
+
+Setup (repository → Settings → Secrets and variables → Actions):
+
+- `BACKUP_DATABASE_URL`: the Neon connection string **without pooling** (`postgresql://user:password@ep-...neon.tech/cardsdb?sslmode=require`).
+- `BACKUP_PASSPHRASE`: a long random passphrase (e.g. `openssl rand -base64 32`). Keep a copy outside GitHub (password manager): secrets can't be read back, and losing it makes every backup useless.
+
+With the GitHub CLI, `gh secret set BACKUP_DATABASE_URL` and `gh secret set BACKUP_PASSPHRASE` prompt for the values without echoing them.
+
+Restore (the dump comes from pg_dump 18, so use the `postgres:18` tools; `--clean` replaces what is in the target database):
+
+```bash
+gh run download <run-id> --name cardsdb-backup-<run-number>   # or download the artifact from the run page
+gpg --decrypt --output cardsdb.dump cardsdb-YYYY-MM-DD.dump.gpg   # asks for the passphrase
+export TARGET_URL='postgresql://user:password@host/cardsdb?sslmode=require'
+docker run --rm -i -e TARGET_URL postgres:18 \
+  sh -c 'pg_restore --clean --if-exists --no-owner --no-acl --single-transaction --exit-on-error -d "$TARGET_URL"' < cardsdb.dump
+```
+
 ## API Documentation
 
 Swagger UI is available (when `NODE_ENV` is not `production`) at:
